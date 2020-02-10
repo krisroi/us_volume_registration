@@ -86,7 +86,7 @@ class _DenseBlock(nn.ModuleDict):
         for name, layer in self.items():
             new_features = layer(features)
             features.append(new_features)
-        return torc.cat(features, 1)
+        return torch.cat(features, 1)
 
 
 class _Transition(nn.Sequential):
@@ -116,8 +116,8 @@ class _DenseNet(nn.Module):
 
     __constants__ = ['features']
 
-    def __init__(self, growth_rate, block_config,
-                 num_init_features, bn_size, drop_rate, memory_efficient):
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16),
+                 num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000, memory_efficient=False):
 
         super(_DenseNet, self).__init__()
 
@@ -135,7 +135,7 @@ class _DenseNet(nn.Module):
         for i, num_layers in enumerate(block_config):
             block = _DenseBlock(
                 num_layers=num_layers,
-                num_input_features=num_input_features,
+                num_input_features=num_features,
                 bn_size=bn_size,
                 growth_rate=growth_rate,
                 drop_rate=drop_rate,
@@ -151,14 +151,43 @@ class _DenseNet(nn.Module):
 
         # Final batch norm
         self.features.add_module('norm5', nn.BatchNorm3d(num_features))
+        
+        self.classifier = nn.Linear(num_features, num_classes)
 
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
+        out = F.relu(features, inplace=True)
+        out = F.adaptive_avg_pool3d(out, (1, 1, 1))
+        out = torch.flatten(out, 1)
+        out = self.classifier(out)
         return out
+    
+def _densenet(arch, growth_rate, block_config, num_init_features, pretrained, progress,
+              **kwargs):
+    model = _DenseNet(growth_rate, block_config, num_init_features, **kwargs)
+    if pretrained:
+        _load_state_dict(model, model_urls[arch], progress)
+    return model
+
+def _airnet(arch, growth_rate, block_config, num_init_features, pretrained, progress, **kwargs):
+    
 
 
-class _Regressor(nn.Module):
+def densenet121(pretrained=False, progress=True, **kwargs):
+    r"""Densenet-121 model from
+    `"Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`_
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+        memory_efficient (bool) - If True, uses checkpointing. Much more memory efficient,
+          but slower. Default: *False*. See `"paper" <https://arxiv.org/pdf/1707.06990.pdf>`_
+    """
+    return _densenet('densenet121', 12, (6, 10, 8), 1, pretrained, progress,
+                     **kwargs)
+
+
+class _Regressor(nn.Sequential):
     def __init__(self, num_input_features, num_theta_parameters, reduction):
         super(_Regressor, self).__init__()
         self.add_module('fc0', nn.Linear(num_input_features, num_input_features // reduction))
@@ -172,20 +201,24 @@ class _Regressor(nn.Module):
         self.add_module('relu2', nn.ReLU(inplace=True))
         self.add_module('fc3', nn.Linear(num_input_features // (8 * reduction), num_theta_parameters))
 
-        self.fc3.weight.data.zero_()
-        self.fc3.bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float64))
+        #self.fc3.weight.data.zero_()
+        #self.fc3.bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float64))
 
-
+'''
 class USAIRNet(nn.Module):
 
     __constants__ = ['fixed_loc, moving_loc']
 
-    def __init__(self, growth_rate=16, block_config=(6, 12, 24, 16),
-                 num_init_features=64, bn_size=4, drop_rate=0, memory_efficient=False,
-                 num_input_features=8192, num_theta_parameters=12, reduction=8):
+    def __init__(self, growth_rate=4, block_config=(2, 6, 12, 8),
+                 num_init_features=1, bn_size=2, drop_rate=0, memory_efficient=False,
+                 num_input_features=43218, num_theta_parameters=12, reduction=8):
 
         super(USAIRNet, self).__init__()
-
+        
+        self.fixed_loc = nn.Sequential()
+        self.moving_loc = nn.Sequential()
+        self.regressor = nn.Sequential()
+        
         dense = _DenseNet(growth_rate=growth_rate,
                           block_config=block_config,
                           num_init_features=num_init_features,
@@ -193,40 +226,41 @@ class USAIRNet(nn.Module):
                           drop_rate=drop_rate,
                           memory_efficient=memory_efficient
                           )
+        
         self.fixed_loc.add_module('densenet%d', dense)
         self.moving_loc.add_module('densenet%d', dense)
 
         self.fixed_loc.add_module('flatten', nn.Flatten())
         self.moving_loc.add_module('flatten', nn.Flatten())
 
-        self.regressor = _Regressor(num_input_features=num_input_features,
-                                    num_theta_parameters=num_theta_parameters,
-                                    reduction=reduction)
+        regress = _Regressor(num_input_features=num_input_features,
+                             num_theta_parameters=num_theta_parameters,
+                             reduction=reduction)
+        
+        self.regressor.add_module('regressor%d', regress)
 
         # Official init from torch repo.
         for m in self.modules():
             if isinstance(m, nn.Conv3d):
-                nn.init.kaiming_normal(m.weight)
+                nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm3d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, fixed, moving):
-        fixed = self.fixed_loc
-        moving = self.moving_loc
+        fixed = self.fixed_loc(fixed)
+        moving = self.moving_loc(moving)
         concated_params = torch.cat((fixed, moving), 1)
         theta = self.regressor(concated_params)
         return theta
+'''
 
 
 if __name__ == '__main__':
 
-    net = USAIRNet(growth_rate, block_config, num_init_features, **kwargs)
-
-    r = torch.randn(2, 60, 60, 60)
-    r_fix = r[0, :]
-    r_mov = r[1, :]
-
-    theta = net(r_fix, r_mov)
-
-    print(theta)
+    net = densenet121()
+    
+    randn = torch.randn(1, 1, 224, 224, 224)
+    
+    print(net)
+    print(net(randn).shape)
