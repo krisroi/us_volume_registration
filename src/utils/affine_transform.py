@@ -35,6 +35,6 @@ def affine_transform(moving_patch, theta):
     B, C, D, H, W = moving_patch.shape  # Extracting the dimensions
 
     grid_3d = affine_grid_3d((B, C, D, H, W), theta)
-    warped_patches = F.grid_sample(moving_patch, grid_3d, mode='bilinear' padding_mode='border', align_corners=True)  # (mode opt: 'nearest', 'bilinear' - padding_mode opt: 'border', 'zeros', 'reflection')
+    warped_patches = F.grid_sample(moving_patch, grid_3d, mode='bilinear', padding_mode='border', align_corners=True)  # (mode opt: 'nearest', 'bilinear' - padding_mode opt: 'border', 'zeros', 'reflection')
 
     return warped_patches

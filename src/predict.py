@@ -6,12 +6,12 @@ import sys
 import os
 from datetime import datetime
 
-# Folder dependent imports
-from lib.network import Net
-from lib.affine import affine_transform
-from lib.HDF5Image import HDF5Image
-from lib.patch_volume import create_patches
-from lib.ncc_loss import NCC
+from network import USAIRNet, _DenseNet, _AffineRegression
+
+from utils.affine_transform import affine_transform
+from utils.load_hdf5 import LoadHDF5File
+from utils.patch_volume import create_patches
+from utils.ncc_loss import NCC
 
 class CreatePredictionSet(Dataset):
     """Reads fixed- and moving patches and returns them as a Dataset object for
@@ -69,7 +69,7 @@ def generate_patches(path_to_h5files, patch_size, stride, device, voxelsize):
 
     print('Creating patches ... ')
 
-    vol_data = HDF5Image(path_to_h5files, fix_set, mov_set,
+    vol_data = LoadHDF5File(path_to_h5files, fix_set, mov_set,
                          fix_vols, mov_vols)
     vol_data.normalize()
     vol_data.to(device)
@@ -87,7 +87,18 @@ def create_net(model_name, device):
             model_name (string): absolute path to model
             device (torch.device): device to load model on
     """
-    net = Net().to(device)
+    denseNetLoc = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
+                         num_init_features=8, bn_size=4, drop_rate=0,
+                         memory_efficient=False
+                        )
+    
+    denseNetMov = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
+                         num_init_features=8, bn_size=4, drop_rate=0,
+                         memory_efficient=False
+                        )
+    
+    affineRegression = _AffineRegression()
+    net = USAIRNet(denseNetLoc, denseNetMov, affineRegression).to(device)
 
     print('Loading weights ...')
     model = torch.load(model_name)
@@ -108,8 +119,8 @@ def predict(path_to_h5files, patch_size, stride, device, voxelsize, model_name, 
             batch_size(int)
     """
 
-    loc_path = 'output/txtfiles/loc_prediction.csv'
-    theta_path = 'output/txtfiles/theta_prediction.csv'
+    loc_path = '/home/krisroi/procrustes_analysis/loc_prediction.csv'
+    theta_path = '/home/krisroi/procrustes_analysis/theta_prediction.csv'
 
     with open(loc_path, 'w') as lctn:
         fieldnames = ['x_pos', 'y_pos', 'z_pos']
@@ -151,7 +162,7 @@ def predict(path_to_h5files, patch_size, stride, device, voxelsize, model_name, 
         print(printer, end='\r')
 
         net_rt = datetime.now()
-        predicted_theta = net(moving_batch)
+        predicted_theta = net(fixed_batch, moving_batch)
         print('Net runtime: ', datetime.now() - net_rt)
 
         predicted_theta = predicted_theta.view(-1, 12)
@@ -180,8 +191,8 @@ if __name__ == '__main__':
 
     model_name = str(sys.argv[1])  # Run predict with modelname from training as argument
     path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc/'
-    patch_size = 60
-    stride = 18
+    patch_size = 70
+    stride = 40
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     voxelsize = 7.0000003e-4
     batch_size = 32

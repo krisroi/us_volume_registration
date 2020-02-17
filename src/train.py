@@ -10,14 +10,12 @@ from sklearn.utils import shuffle
 import matplotlib.pyplot as plt
 
 # Folder dependent imports
-from lib.network import Net
-from lib.affine import affine_transform
-from lib.HDF5Image import HDF5Image
-from lib.patch_volume import create_patches
-from lib.ncc_loss import NCC
-import lib.utils as ut
-from lib.data_info_loader import GetDatasetInformation
-from predict import predict
+from network import USAIRNet, _DenseNet, _AffineRegression
+from utils.affine_transform import affine_transform
+from utils.load_hdf5 import LoadHDF5File
+from utils.patch_volume import create_patches
+from utils.ncc_loss import NCC
+from utils.data_info_loader import GetDatasetInformation
 
 
 class CreateDataset(Dataset):
@@ -53,18 +51,6 @@ def progress_printer(percentage):
     dots = '......................'
     printer = '[{}{}]'.format(eq[len(eq) - math.ceil(percentage * 20):len(eq)], dots[2:len(eq) - math.ceil(percentage * 20)])
     return printer
-
-
-def weights_init(m):
-    """Apply weight and bias initalization
-    """
-    if isinstance(m, torch.nn.Conv3d):
-        torch.nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
-        torch.nn.init.zeros_(m.bias)
-    elif isinstance(m, torch.nn.Linear):
-        torch.nn.init.kaiming_uniform_(m.weight, mode='fan_in', nonlinearity='relu')
-        if m.bias is None:
-            torch.nn.init.zeros_(m.bias)
 
 
 def generate_patches(path_to_infofile, info_filename, path_to_h5files,
@@ -107,7 +93,7 @@ def generate_patches(path_to_infofile, info_filename, path_to_h5files,
         printer = progress_printer(set_idx / len(fix_set))
         print(printer, end='\r')
 
-        vol_data = HDF5Image(path_to_h5files, fix_set[set_idx], mov_set[set_idx],
+        vol_data = LoadHDF5File(path_to_h5files, fix_set[set_idx], mov_set[set_idx],
                              fix_vols[set_idx], mov_vols[set_idx])
         vol_data.normalize()
         vol_data.to(device)
@@ -179,7 +165,7 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
 
         fixed_batch, moving_batch = fixed_batch.to(device), moving_batch.to(device)
 
-        predicted_theta = net(moving_batch)
+        predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
         loss = criterion(fixed_batch, predicted_deform, reduction='mean')
@@ -221,7 +207,7 @@ def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criteri
 
         optimizer.zero_grad()
 
-        predicted_theta = net(moving_batch)
+        predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
         loss = criterion(fixed_batch, predicted_deform, reduction='mean')
@@ -237,17 +223,20 @@ def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criteri
 
 def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to_lossfile, device, model_name, validation_set_ratio):
 
-    net = Net().to(device)
-    net.apply(weights_init)
+    denseNetLoc = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
+                         num_init_features=8, bn_size=4, drop_rate=0,
+                         memory_efficient=False
+                        )
+    denseNetMov = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
+                         num_init_features=8, bn_size=4, drop_rate=0,
+                         memory_efficient=False
+                        )
+    affineRegression = _AffineRegression()
+    
+    net = USAIRNet(denseNetLoc, denseNetMov, affineRegression).to(device)
 
     criterion = NCC().to(device)
-    optimizer = optim.Adam([
-			    {'params': net.stn1.parameters(), 'lr': 1e-3},
-			    {'params': net.stn2.parameters(), 'lr': 1e-3},
-			    {'params': net.stn3.parameters(), 'lr': 1e-3},
-			    {'params': net.sampler1.parameters()},
-			    {'params': net.sampler2.parameters()}
-			    ], lr=lr)
+    optimizer = optim.Adam(net.parameters(), lr=lr)
     #scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.5)
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -271,19 +260,20 @@ def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to
     print('\n')
 
     for epoch in range(epochs):
-
+        
+        with torch.autograd.set_detect_anomaly(True):
         # Train model
-        net.train()
-        training_loss = train(fixed_training_patches,
-                              moving_training_patches,
-                              epoch,
-                              epochs,
-                              batch_size,
-                              net,
-                              criterion,
-                              optimizer,
-                              device,
-                              )
+            net.train()
+            training_loss = train(fixed_training_patches,
+                                  moving_training_patches,
+                                  epoch,
+                                  epochs,
+                                  batch_size,
+                                  net,
+                                  criterion,
+                                  optimizer,
+                                  device,
+                                  )
 
         # Validate model
         with torch.no_grad():
@@ -334,12 +324,12 @@ if __name__ == '__main__':
 
     #=======================PARAMETERS==========================#
     lr = 1e-3  # learning rate
-    epochs = 150  # number of epochs
+    epochs = 100  # number of epochs
     tot_num_sets = 25  # Total number of sets to use for training (25 max, 1 is used for prediction)
     validation_set_ratio = 0.2
     batch_size = 32
-    patch_size = 60
-    stride = 18
+    patch_size = 70
+    stride = 40
     voxelsize = 7.0000003e-4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     #===========================================================#
@@ -349,9 +339,9 @@ if __name__ == '__main__':
     date = now.strftime('%d%m%Y')
     time = now.strftime('%H%M%S')
 
-    model_name = 'output/models/model_latest_GPURUN.pt'
+    model_name = '/home/krisroi/us_volume_registration/output/models/model_latest_GPURUN.pt'
     #model_name = 'output/models/model_{}_{}.pt'.format(date, time)
-    path_to_lossfile = 'output/txtfiles/loss_latest_GPURUN.csv'
+    path_to_lossfile = '/home/krisroi/us_volume_registration/output/txtfiles/loss_latest_GPURUN.csv'
     #path_to_lossfile = 'output/txtfiles/avg_loss_{}_epochs_{}_{}.csv'.format(epochs, date, time)
 
     path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc/'

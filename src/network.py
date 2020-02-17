@@ -122,8 +122,8 @@ class _DenseNet(nn.Module):
 
         # Initial convolution
         self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv3d(1, num_init_features, kernel_size=7, stride=2,
-                                padding=3, bias=False)),
+            ('conv0', nn.Conv3d(1, num_init_features, kernel_size=5, stride=1,
+                                padding=1, bias=False)),
             ('norm0', nn.BatchNorm3d(num_init_features)),
             ('relu0', nn.ReLU(inplace=True)),
             ('pool0', nn.MaxPool3d(kernel_size=3, stride=2, padding=1))
@@ -155,8 +155,9 @@ class _DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = F.relu(features, inplace=True)
-        #out = F.adaptive_avg_pool3d(out, (1, 1, 1))
+        #out = F.adaptive_avg_pool3d(out, (2, 2, 2))
+        print(out.shape)
+        #plot_featuremaps(out.detach().numpy())
         return out
 
 
@@ -166,10 +167,10 @@ class _AffineRegression(nn.Module):
 
         # Regression
         self.params = nn.Sequential(OrderedDict([
-            ('fc0', nn.Linear(1024, 512)),
-            ('norm0', nn.BatchNorm1d(512)),
+            ('fc0', nn.Linear(5936, 1024)),
+            ('norm0', nn.BatchNorm1d(1024)),
             ('relu0', nn.ReLU(inplace=True)),
-            ('fc1', nn.Linear(512, 256)),
+            ('fc1', nn.Linear(1024, 256)),
             ('norm1', nn.BatchNorm1d(256)),
             ('relu1', nn.ReLU(inplace=True)),
             ('fc2', nn.Linear(256, 128)),
@@ -206,12 +207,11 @@ class USAIRNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, fixed, moving):
-        fixed_loc = self.denseNet(fixed)
-        moving_loc = self.denseNet(moving)
+        fixed_loc = torch.flatten(self.denseNet(fixed), 1)
+        moving_loc = torch.flatten(self.denseNet(moving), 1)
         print(fixed_loc.shape)
-        fixed_loc = torch.flatten(fixed_loc, 1)
-        moving_loc = torch.flatten(moving_loc, 1)
         concated = torch.cat((fixed_loc, moving_loc), 1)
+        
         theta = self.affineRegression(concated)
         theta = theta.view(-1, 3, 4)
         return theta
@@ -223,11 +223,14 @@ def count_parameters(model):
 
 
 if __name__ == '__main__':
+    
+    from utils.utility_functions import plot_featuremaps
 
-    denseNet = _DenseNet(growth_rate=24, block_config=(1, 2, 4, 8, 16),
-                         num_init_features=8, bn_size=4, drop_rate=0,
+    denseNet = _DenseNet(growth_rate=6, block_config=(1, 2, 4, 8),
+                         num_init_features=10, bn_size=4, drop_rate=0,
                          memory_efficient=True
                          )
+
     affineRegression = _AffineRegression()
 
     net = USAIRNet(denseNet, affineRegression)
