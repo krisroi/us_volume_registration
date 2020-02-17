@@ -27,7 +27,7 @@ def affine_grid_3d(size, theta):
 def affine_transform(moving_patch, theta):
     """ Performs an affine transform of some input data with a transformation matrix theta
     Args:
-        data (tensor): input the volume data that is to be transformed
+        moving_patch (tensor): input data to transform
         theta (tensor): predicted deformation matrix
     Returns:
         Transformed input data that is transformed with the transformation matrix.
@@ -35,6 +35,7 @@ def affine_transform(moving_patch, theta):
     B, C, D, H, W = moving_patch.shape  # Extracting the dimensions
 
     grid_3d = affine_grid_3d((B, C, D, H, W), theta)
-    warped_patches = F.grid_sample(moving_patch, grid_3d, mode='bilinear', padding_mode='border', align_corners=True)  # (mode opt: 'nearest', 'bilinear' - padding_mode opt: 'border', 'zeros', 'reflection')
+    warped_patches = F.grid_sample(moving_patch, grid_3d, mode='bilinear',
+                                   padding_mode='border', align_corners=True)  #(mode opt: 'nearest', bilinear' - padding_mode opt: 'border', 'zeros', 'reflection')
 
     return warped_patches
