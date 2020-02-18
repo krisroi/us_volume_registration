@@ -1,144 +1,23 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import torch.optim as optim
 import numpy as np
 import os
 import math
 import csv
+import matplotlib.pyplot as plt
+
+from sys import platform
 from datetime import datetime
 from sklearn.utils import shuffle
-import matplotlib.pyplot as plt
 
 # Folder dependent imports
 from network import USAIRNet, _DenseNet, _AffineRegression
+from losses.ncc_loss import NCC
+from utils.utility_functions import progress_printer
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
-from utils.patch_volume import create_patches
-from utils.ncc_loss import NCC
-from utils.data_info_loader import GetDatasetInformation
-
-
-class CreateDataset(Dataset):
-    """Reads fixed- and moving patches and returns them as a Dataset object for
-        use with Pytorch's handy DataLoader.
-        Args:
-            fixed_patches (Tensor): Tensor containing the fixed patches
-            moving_patches (Tensor): Tensor containing the moving patches
-        Example:
-            dataset = CreateDataset(fixed_patches, moving_patches)
-            dataloader = DataLoader(dataset, **kwargs)
-    """
-
-    def __init__(self, fixed_patches, moving_patches):
-        self.fixed_patches = fixed_patches
-        self.moving_patches = moving_patches
-
-        del fixed_patches, moving_patches
-
-    def __len__(self):
-        return self.fixed_patches.shape[0]
-
-    def __getitem__(self, idx):
-        return self.fixed_patches[idx, :], self.moving_patches[idx, :]
-
-
-def progress_printer(percentage):
-    """Function returning a progress bar
-        Args:
-            percentage (float): percentage point
-    """
-    eq = '=====================>'
-    dots = '......................'
-    printer = '[{}{}]'.format(eq[len(eq) - math.ceil(percentage * 20):len(eq)], dots[2:len(eq) - math.ceil(percentage * 20)])
-    return printer
-
-
-def generate_patches(path_to_infofile, info_filename, path_to_h5files,
-                     patch_size, stride, device, voxelsize, tot_num_sets):
-    """Loading all datasets, creates patches and store all patches in a single array.
-        Args:
-            path_to_file (string): filepath to .txt file containing dataset information
-            info_filename (string): filename for the above file
-            path_to_h5files (string): path to .h5 files
-            patch_size (int): desired patch size
-            stride (int): desired stride between patches
-            voxelsize (float): not used here, but create_patches has it as input
-            tot_num_sets (int): desired number of sets to use in the model
-        Returns:
-            fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
-            moving patches: all moving patches in the dataset ([num_patches, 1, **patch_size])
-    """
-
-    fixed_patches = torch.tensor([]).cpu()
-    moving_patches = torch.tensor([]).cpu()
-
-    dataset = GetDatasetInformation(path_to_infofile, info_filename)
-
-    fix_set = dataset.fix_files
-    mov_set = dataset.mov_files
-    fix_vols = dataset.fix_vols
-    mov_vols = dataset.mov_vols
-
-    fix_set, mov_set, fix_vol, mov_vols = shuffle(fix_set, mov_set, fix_vols, mov_vols)
-
-    fix_set = fix_set[0:tot_num_sets]
-    mov_set = mov_set[0:tot_num_sets]
-    fix_vols = fix_vols[0:tot_num_sets]
-    mov_vols = mov_vols[0:tot_num_sets]
-
-    print('Creating patches ... ')
-
-    for set_idx in range(len(fix_set)):
-
-        printer = progress_printer(set_idx / len(fix_set))
-        print(printer, end='\r')
-
-        vol_data = LoadHDF5File(path_to_h5files, fix_set[set_idx], mov_set[set_idx],
-                             fix_vols[set_idx], mov_vols[set_idx])
-        vol_data.normalize()
-        vol_data.to(device)
-
-        patched_vol_data, _ = create_patches(vol_data.data, patch_size, stride, device, voxelsize)
-        patched_vol_data = patched_vol_data.cpu()
-
-        fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
-        moving_patches = torch.cat((moving_patches, patched_vol_data[:, 1, :]))
-
-        del patched_vol_data
-
-    print(fixed_patches.shape)
-
-    print('Finished creating patches')
-
-    shuffled_fixed_patches = torch.zeros((fixed_patches.shape[0], patch_size, patch_size, patch_size)).cpu()
-    shuffled_moving_patches = torch.zeros((fixed_patches.shape[0], patch_size, patch_size, patch_size)).cpu()
-
-    print(fixed_patches.is_cuda)
-    print(moving_patches.is_cuda)
-
-    shuffler = CreateDataset(fixed_patches, moving_patches)
-    del fixed_patches, moving_patches
-    shuffle_loader = DataLoader(shuffler, batch_size=1, shuffle=True, num_workers=0, pin_memory=False)
-    del shuffler
-
-    print('Shuffling patches ...')
-
-    for batch_idx, (fixed_patches, moving_patches) in enumerate(shuffle_loader):
-
-        printer = progress_printer(batch_idx / len(shuffle_loader))
-        print(printer, end='\r')
-
-        shuffled_fixed_patches[batch_idx, :] = fixed_patches
-        shuffled_moving_patches[batch_idx, :] = moving_patches
-
-        del fixed_patches, moving_patches
-
-    print('Finished shuffling patches')
-    print('\n')
-
-    print("Shuf is cuda: ", shuffled_fixed_patches.is_cuda)
-
-    return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
+from utils.data import CreateDataset, GetDatasetInformation, generate_patches
 
 
 def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criterion, device):
@@ -221,18 +100,19 @@ def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criteri
     return training_loss
 
 
-def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to_lossfile, device, model_name, validation_set_ratio):
+def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
+                  lr, batch_size, device, validation_set_ratio):
 
-    denseNetLoc = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
-                         num_init_features=8, bn_size=4, drop_rate=0,
-                         memory_efficient=False
-                        )
-    denseNetMov = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
-                         num_init_features=8, bn_size=4, drop_rate=0,
-                         memory_efficient=False
-                        )
+    denseNetLoc = _DenseNet(growth_rate=1, block_config=(1, 2, 3, 4),
+                            num_init_features=1, bn_size=4, drop_rate=0,
+                            memory_efficient=False
+                            )
+    denseNetMov = _DenseNet(growth_rate=1, block_config=(1, 2, 3, 4),
+                            num_init_features=1, bn_size=4, drop_rate=0,
+                            memory_efficient=False
+                            )
     affineRegression = _AffineRegression()
-    
+
     net = USAIRNet(denseNetLoc, denseNetMov, affineRegression).to(device)
 
     criterion = NCC().to(device)
@@ -260,32 +140,32 @@ def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to
     print('\n')
 
     for epoch in range(epochs):
-        
-        with torch.autograd.set_detect_anomaly(True):
-        # Train model
+
+        with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
+            # Train model
             net.train()
-            training_loss = train(fixed_training_patches,
-                                  moving_training_patches,
-                                  epoch,
-                                  epochs,
-                                  batch_size,
-                                  net,
-                                  criterion,
-                                  optimizer,
-                                  device,
+            training_loss = train(fixed_training_patches=fixed_training_patches,
+                                  moving_training_patches=moving_training_patches,
+                                  epoch=epoch,
+                                  epochs=epochs,
+                                  batch_size=batch_size,
+                                  net=net,
+                                  criterion=criterion,
+                                  optimizer=optimizer,
+                                  device=device
                                   )
 
         # Validate model
         with torch.no_grad():
             net.eval()
-            validation_loss = validate(fixed_validation_patches,
-                                       moving_validation_patches,
-                                       epoch,
-                                       epochs,
-                                       batch_size,
-                                       net,
-                                       criterion,
-                                       device
+            validation_loss = validate(fixed_validation_patches=fixed_validation_patches,
+                                       moving_validation_patches=moving_validation_patches,
+                                       epoch=epoch,
+                                       epochs=epochs,
+                                       batch_size=batch_size,
+                                       net=net,
+                                       criterion=criterion,
+                                       device=device
                                        )
 
         # scheduler.step()
@@ -303,7 +183,7 @@ def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to
               .format(epoch + 1, epochs, epoch_train_loss[epoch], epoch_validation_loss[epoch]))
         print('\n')
 
-        with open(path_to_lossfile, mode='a') as loss:
+        with open(lossfile, mode='a') as loss:
             loss_writer = csv.writer(loss, delimiter=',')
             loss_writer.writerow([(epoch + 1), epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item()])
 
@@ -312,6 +192,7 @@ def train_network(fixed_patches, moving_patches, epochs, lr, batch_size, path_to
 
 if __name__ == '__main__':
 
+    # Manual seed for reproducibility (both CPU and CUDA)
     torch.manual_seed(0)
     np.random.seed(0)
 
@@ -319,38 +200,44 @@ if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
+    # Supress warnings
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
 
     #=======================PARAMETERS==========================#
     lr = 1e-3  # learning rate
-    epochs = 100  # number of epochs
-    tot_num_sets = 25  # Total number of sets to use for training (25 max, 1 is used for prediction)
+    epochs = 1  # number of epochs
+    tot_num_sets = 5  # Total number of sets to use for training (25 max, 1 is used for prediction)
     validation_set_ratio = 0.2
-    batch_size = 32
+    batch_size = 4
     patch_size = 70
     stride = 40
     voxelsize = 7.0000003e-4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    filter_type = 'Bilateral_treshold'
     #===========================================================#
 
-    #=======================SAVING DATA=========================#
-    now = datetime.now()
-    date = now.strftime('%d%m%Y')
-    time = now.strftime('%H%M%S')
+    #==================DEFINING FILES AND PATHS=================#
 
-    model_name = '/home/krisroi/us_volume_registration/output/models/model_latest_GPURUN.pt'
-    #model_name = 'output/models/model_{}_{}.pt'.format(date, time)
-    path_to_lossfile = '/home/krisroi/us_volume_registration/output/txtfiles/loss_latest_GPURUN.csv'
-    #path_to_lossfile = 'output/txtfiles/avg_loss_{}_epochs_{}_{}.csv'.format(epochs, date, time)
+    # Running project on mac for testing and linux server distribution for GPU
+    if platform == 'linux' or platform == 'linux2':
+        PROJECT_ROOT = '/home/krisroi/'
+        PROJECT_NAME = 'us_volume_registration'
+        DATA_ROOT = '/mnt/EncryptedFastData/krisroi/'
+    elif platform == 'darwin':
+        PROJECT_ROOT = '/Users/kristofferroise/master_project/'
+        PROJECT_NAME = 'us_volume_registration'
+        DATA_ROOT = '/Volumes/external/WD_MY_PASSPORT_ARCHIVE/NTNU_project/'
 
-    path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc/'
-    path_to_infofile = '/mnt/EncryptedFastData/krisroi/'
-    info_filename = 'dataset_information.csv'
+    model_name = os.path.join(PROJECT_ROOT, PROJECT_NAME, 'output/models/', 'model_latest.pt')  # Model path
+    lossfile = os.path.join(PROJECT_ROOT, PROJECT_NAME, 'output/txtfiles/', 'loss_latest.csv')  # Loss path
+
+    data_files = os.path.join(DATA_ROOT, 'patient_data_proc_{}/'.format(filter_type))  # Path to .h5 data
+    data_information = os.path.join(DATA_ROOT, 'dataset_information.csv')  # Path to information on .h5 data
     #===========================================================#
 
-    #===================INITIALIZE FILES========================#
-    with open(path_to_lossfile, 'w') as els:
+    #==================INITIALIZE LOSSFILE======================#
+    with open(lossfile, 'w') as els:
         fieldnames = ['epoch', 'training_loss', 'validation_loss', 'lr=' + str(lr), 'batch_size=' + str(batch_size),
                       'patch_size=' + str(patch_size), 'stride=' + str(stride),
                       'number_of_datasets=' + str(tot_num_sets), 'device=' + str(device)]
@@ -358,21 +245,26 @@ if __name__ == '__main__':
         epoch_writer.writeheader()
     #===========================================================#
 
-    start_time = datetime.now()
+    fixed_patches, moving_patches = generate_patches(data_information=data_information,
+                                                     data_files=data_files,
+                                                     filter_type=filter_type,
+                                                     patch_size=patch_size,
+                                                     stride=stride,
+                                                     device=device,
+                                                     voxelsize=voxelsize,
+                                                     tot_num_sets=tot_num_sets
+                                                     )
 
-    generate_patches_start_time = datetime.now()
-    fixed_patches, moving_patches = generate_patches(path_to_infofile, info_filename, path_to_h5files,
-                                                     patch_size, stride, device, voxelsize, tot_num_sets)
-    print('Generate patches runtime: ', datetime.now() - generate_patches_start_time)
-    print('\n')
-
-    training_start_time = datetime.now()
-    training_loss, validation_loss = train_network(fixed_patches, moving_patches, epochs, lr, batch_size,
-                                                   path_to_lossfile, device, model_name, validation_set_ratio)
-    print('Training runtime: ', datetime.now() - training_start_time)
-    print('\n')
-
-    print('Total runtime: ', datetime.now() - start_time)
+    training_loss, validation_loss = train_network(lossfile=lossfile,
+                                                   model_name=model_name,
+                                                   fixed_patches=fixed_patches,
+                                                   moving_patches=moving_patches,
+                                                   epochs=epochs,
+                                                   lr=lr,
+                                                   batch_size=batch_size,
+                                                   device=device,
+                                                   validation_set_ratio=validation_set_ratio
+                                                   )
 
     print('End training loss: ', training_loss)
     print('End validation loss: ', validation_loss)
