@@ -12,7 +12,7 @@ from datetime import datetime
 from sklearn.utils import shuffle
 
 # Folder dependent imports
-from network import USAIRNet, _DenseNet, _AffineRegression
+from models.network import USAIRNet, _DenseNet, _AffineRegression
 from losses.ncc_loss import NCC
 from utils.utility_functions import progress_printer
 from utils.affine_transform import affine_transform
@@ -20,7 +20,7 @@ from utils.load_hdf5 import LoadHDF5File
 from utils.data import CreateDataset, GetDatasetInformation, generate_patches
 
 
-def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criterion, device):
+def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criterion, device, weight):
     """Validating the model using part of the dataset
         Args:
             fixed_patches (Tensor): Tensor holding the fixed_patches ([num_patches, 1, patch_size, patch_size, patch_size])
@@ -47,7 +47,7 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, predicted_deform, reduction='mean')
+        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, reduction='mean')
         validation_loss[batch_idx] = loss.item()
 
         printer = progress_printer((batch_idx + 1) / len(validation_loader))
@@ -58,8 +58,8 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
     return validation_loss
 
 
-def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criterion,
-          optimizer, device):
+def train(fixed_patches, moving_patches, epoch, epochs,
+          batch_size, net, criterion, optimizer, device, weight):
     """Training the model
         Args:
             fixed_patches (Tensor): Tensor holding the fixed_patches ([num_patches, 1, patch_size, patch_size, patch_size])
@@ -89,7 +89,7 @@ def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criteri
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, predicted_deform, reduction='mean')
+        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, reduction='mean')
         loss.backward()
         training_loss[batch_idx] = loss.item()
         optimizer.step()
@@ -103,17 +103,20 @@ def train(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criteri
 def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
                   lr, batch_size, device, validation_set_ratio):
 
-    denseNetLoc = _DenseNet(growth_rate=1, block_config=(1, 2, 3, 4),
-                            num_init_features=1, bn_size=4, drop_rate=0,
-                            memory_efficient=False
-                            )
-    denseNetMov = _DenseNet(growth_rate=1, block_config=(1, 2, 3, 4),
-                            num_init_features=1, bn_size=4, drop_rate=0,
-                            memory_efficient=False
-                            )
-    affineRegression = _AffineRegression()
+    denseNet = _DenseNet(growth_rate=8, block_config=(2, 4, 6, 4),
+                         num_init_features=4, bn_size=4, drop_rate=0,
+                         memory_efficient=False
+                         )
 
-    net = USAIRNet(denseNetLoc, denseNetMov, affineRegression).to(device)
+    affineRegression = _AffineRegression(
+        num_input_parameters=8448,
+        num_init_parameters=1024,
+        affine_config=(1024, 512, 256, 128),
+        reduction_rate=2,
+        drop_rate=0
+    )
+
+    net = USAIRNet(denseNet, affineRegression).to(device)
 
     criterion = NCC().to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
@@ -141,31 +144,35 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     for epoch in range(epochs):
 
+        weight = (40 / (4 + math.exp(epoch / 4)))
+
         with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
             # Train model
             net.train()
-            training_loss = train(fixed_training_patches=fixed_training_patches,
-                                  moving_training_patches=moving_training_patches,
+            training_loss = train(fixed_patches=fixed_training_patches,
+                                  moving_patches=moving_training_patches,
                                   epoch=epoch,
                                   epochs=epochs,
                                   batch_size=batch_size,
                                   net=net,
                                   criterion=criterion,
                                   optimizer=optimizer,
-                                  device=device
+                                  device=device,
+                                  weight=weight
                                   )
 
         # Validate model
         with torch.no_grad():
             net.eval()
-            validation_loss = validate(fixed_validation_patches=fixed_validation_patches,
-                                       moving_validation_patches=moving_validation_patches,
+            validation_loss = validate(fixed_patches=fixed_validation_patches,
+                                       moving_patches=moving_validation_patches,
                                        epoch=epoch,
                                        epochs=epochs,
                                        batch_size=batch_size,
                                        net=net,
                                        criterion=criterion,
-                                       device=device
+                                       device=device,
+                                       weight=weight
                                        )
 
         # scheduler.step()
