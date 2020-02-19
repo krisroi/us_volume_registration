@@ -1,2 +1,14 @@
-src/network_old.py
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project specific
+**.DS_Store
+
+# Exclude output
 output/
+
+# Exclude old network model
+src/models/network_old.py
+
