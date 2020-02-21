@@ -22,13 +22,18 @@ class NCC(nn.Module):
         >>> loss = criterion(fixed_patch, moving_patch, predicted_theta, weight, reduction(opt))
     """
 
-    def __init__(self):
+    def __init__(self, useRegularization=True):
         super(NCC, self).__init__()
+        
+        self.useRegularization = useRegularization
+        print(self.useRegularization)
 
-    def forward(self, fixed_patch, moving_patch, predicted_theta, weight, reduction='mean'):
+    def forward(self, fixed_patch, moving_patch, predicted_theta, weight, device, reduction='mean'):
         # Creates a forward pass for the loss function
         ncc = normalized_cross_correlation(fixed_patch, moving_patch, reduction)
-        L_reg = regularization_loss(predicted_theta, weight)
+        if not self.useRegularization:
+            weight = 0
+        L_reg = regularization_loss(predicted_theta, weight, device)
         return ncc + L_reg
 
 
@@ -65,28 +70,11 @@ def extract(predicted_theta):
     return IDT, A, b
 
 
-def regularization_loss(predicted_theta, weight):
+def regularization_loss(predicted_theta, weight, device):
     IDT, A, b = extract(predicted_theta)
-    return weight * ((torch.norm((A - IDT), p='fro'))**2 + (torch.norm(b, p=2))**2)
+    return weight * ((torch.norm((A - IDT.to(device)), p='fro'))**2 + (torch.norm(b, p=2))**2)
 
 
 def determinant_loss(predicted_theta):
     IDT, A, _ = extract(predicted_theta)
     return (-1 + torch.det(A + IDT))**2
-
-
-if __name__ == '__main__':
-
-    crit = NCC()
-    predicted_theta = torch.tensor([0.99, 0.0013, 0.0259, 0.04, 0.0013, 0.99, 0.013, 0.01, 0.0077, -0.00478, 1.021, 0.026], dtype=torch.float64)
-
-    predicted_theta = torch.tensor([-0.934345, 0.348203, -0.0758512, 0.413967, 0.33593, 0.931622, 0.138675, -0.0406912, -0.118952, -0.104089, 0.987429, 0.0633815], dtype=torch.float64)
-
-    predicted_theta = predicted_theta.view(-1, 3, 4)
-    weight = 1
-
-    fixed_patch = torch.randn(4, 1, 70, 70, 70)
-    moving_patch = torch.randn(4, 1, 70, 70, 70)
-
-    loss = crit(fixed_patch, moving_patch, predicted_theta, weight, reduction='sum')
-    print(loss)

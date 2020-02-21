@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as cp
-from collections import OrderedDict
 
+from collections import OrderedDict
 from torch.jit.annotations import List
 
+from utils.utility_functions import plot_featuremaps
 
 class _DenseLayer(nn.Module):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, memory_efficient=False):
@@ -143,7 +144,7 @@ class _DenseNet(nn.Module):
             )
             self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
-            if i != len(block_config) - 1:
+            if i != len(block_config):
                 trans = _Transition(num_input_features=num_features,
                                     num_output_features=num_features // 2)
                 self.features.add_module('transition%d' % (i + 1), trans)
@@ -155,8 +156,9 @@ class _DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
+        print(out.shape)
         #out = F.adaptive_avg_pool3d(out, (2, 2, 2))
-        # plot_featuremaps(out.detach().numpy())
+        #plot_featuremaps(out.cpu().detach().numpy())
         return out
 
 
@@ -250,27 +252,23 @@ def count_parameters(model):
 
 
 if __name__ == '__main__':
-
-    denseNet = _DenseNet(growth_rate=8, block_config=(2, 4, 6, 4),
-                         num_init_features=4, bn_size=4, drop_rate=0,
+    
+    denseNet = _DenseNet(growth_rate=8, block_config=(1, 2, 4, 8, 16, 32),
+                         num_init_features=12, bn_size=4, drop_rate=0,
                          memory_efficient=False
-                         )
+                        )
 
     affineRegression = _AffineRegression(
-        num_input_parameters=8448,
-        num_init_parameters=1024,
-        affine_config=(1024, 512, 256, 128),
+        num_input_parameters=2032,
+        num_init_parameters=512,
+        affine_config=(512, 256, 128, 64),
         reduction_rate=2,
-        drop_rate=0
-    )
-
-    net = USAIRNet(denseNet, affineRegression)
-
-    dim = 70
-    batch_size = 4
-
-    fixed = torch.randn(batch_size, 1, dim, dim, dim)
-    moving = torch.randn(batch_size, 1, dim, dim, dim)
-
-    array = torch.randn(4, 8192)
-    print(net(fixed, moving))
+        drop_rate=0.2
+       ) 
+    
+    net = USAIRNet(denseNet, affineRegression).to('cuda:1')
+    
+    fix = torch.randn(1, 1, 320, 320, 320).to('cuda:1')
+    #mov = torch.randn(1, 1, 300, 300, 300)
+    
+    net(fix, fix)

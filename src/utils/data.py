@@ -154,6 +154,4 @@ def generate_patches(data_information, data_files, filter_type,
     print('Finished shuffling patches')
     print('\n')
 
-    print("Shuf is cuda: ", shuffled_fixed_patches.is_cuda)
-
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)

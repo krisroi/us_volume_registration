@@ -47,7 +47,7 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, reduction='mean')
+        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, device, reduction='mean')
         validation_loss[batch_idx] = loss.item()
 
         printer = progress_printer((batch_idx + 1) / len(validation_loader))
@@ -89,7 +89,7 @@ def train(fixed_patches, moving_patches, epoch, epochs,
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, reduction='mean')
+        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, device, reduction='mean')
         loss.backward()
         training_loss[batch_idx] = loss.item()
         optimizer.step()
@@ -103,22 +103,22 @@ def train(fixed_patches, moving_patches, epoch, epochs,
 def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
                   lr, batch_size, device, validation_set_ratio):
 
-    denseNet = _DenseNet(growth_rate=8, block_config=(2, 4, 6, 4),
-                         num_init_features=4, bn_size=4, drop_rate=0,
+    denseNet = _DenseNet(growth_rate=8, block_config=(6, 12, 24, 16),
+                         num_init_features=12, bn_size=4, drop_rate=0,
                          memory_efficient=False
                          )
 
     affineRegression = _AffineRegression(
-        num_input_parameters=8448,
-        num_init_parameters=1024,
-        affine_config=(1024, 512, 256, 128),
+        num_input_parameters=2032,
+        num_init_parameters=512,
+        affine_config=(512, 256, 128, 64),
         reduction_rate=2,
-        drop_rate=0
+        drop_rate=0.2
     )
 
     net = USAIRNet(denseNet, affineRegression).to(device)
 
-    criterion = NCC().to(device)
+    criterion = NCC(useRegularization=False).to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
     #scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.5)
 
@@ -205,20 +205,20 @@ if __name__ == '__main__':
 
     # Choose GPU device (0 or 1 available)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     # Supress warnings
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
 
     #=======================PARAMETERS==========================#
-    lr = 1e-3  # learning rate
-    epochs = 1  # number of epochs
-    tot_num_sets = 5  # Total number of sets to use for training (25 max, 1 is used for prediction)
+    lr = 1e-2  # learning rate
+    epochs = 20  # number of epochs
+    tot_num_sets = 25  # Total number of sets to use for training (25 max, 1 is used for prediction)
     validation_set_ratio = 0.2
-    batch_size = 4
-    patch_size = 70
-    stride = 40
+    batch_size = 16
+    patch_size = 100
+    stride = 20
     voxelsize = 7.0000003e-4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     filter_type = 'Bilateral_treshold'
