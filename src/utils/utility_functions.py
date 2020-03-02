@@ -3,6 +3,7 @@ matplotlib.use('tkagg')
 
 import matplotlib.pyplot as plt
 import math
+import torch
 
 
 def plot_featuremaps(data):
@@ -24,3 +25,8 @@ def progress_printer(percentage):
     dots = '......................'
     printer = '[{}{}]'.format(eq[len(eq) - math.ceil(percentage * 20):len(eq)], dots[2:len(eq) - math.ceil(percentage * 20)])
     return printer
+
+
+# Utility for counting parameters
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
