@@ -6,8 +6,6 @@ import torch.utils.checkpoint as cp
 from collections import OrderedDict
 from torch.jit.annotations import List
 
-#from utils.utility_functions import plot_featuremaps
-
 
 class _DenseLayer(nn.Module):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate, memory_efficient=False):
