@@ -5,6 +5,7 @@ import numpy as np
 import os
 import math
 import csv
+import argparse
 import matplotlib.pyplot as plt
 
 from sys import platform
@@ -12,7 +13,9 @@ from datetime import datetime
 from sklearn.utils import shuffle
 
 # Folder dependent imports
-from models.network import USAIRNet, _DenseNet, _AffineRegression
+from models.Encoder import _Encoder
+from models.AffineRegression import _AffineRegression
+from models.USARNet import USARNet
 from losses.ncc_loss import NCC
 from utils.utility_functions import progress_printer
 from utils.affine_transform import affine_transform
@@ -101,22 +104,13 @@ def train(fixed_patches, moving_patches, epoch, epochs,
 
 
 def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
-                  lr, batch_size, device, validation_set_ratio):
+                  lr, batch_size, device, validation_set_ratio, ENCODER_CONFIG, AFFINE_CONFIG):
 
-    denseNet = _DenseNet(growth_rate=8, block_config=(6, 12, 24, 16),
-                         num_init_features=12, bn_size=4, drop_rate=0,
-                         memory_efficient=False
-                         )
+    encoder = _Encoder(**ENCODER_CONFIG)
 
-    affineRegression = _AffineRegression(
-        num_input_parameters=2032,
-        num_init_parameters=512,
-        affine_config=(512, 256, 128, 64),
-        reduction_rate=2,
-        drop_rate=0.2
-    )
+    affineRegression = _AffineRegression(**AFFINE_CONFIG)
 
-    net = USAIRNet(denseNet, affineRegression).to(device)
+    net = USARNet(encoder, affineRegression).to(device)
 
     criterion = NCC(useRegularization=False).to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
@@ -203,25 +197,71 @@ if __name__ == '__main__':
     torch.manual_seed(0)
     np.random.seed(0)
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-lr', '--learning-rate',
+                        type=float, default=1e-2,
+                        help='Learning rate for optimizer')
+    parser.add_argument('-e', '--num-epochs',
+                        type=int, default=1,
+                        help='Number of steps to run training')
+    parser.add_argument('-bs', '--batch-size',
+                        type=int, default=16,
+                        help='Batch size to use for training')
+    parser.add_argument('-ps', '--patch-size',
+                        type=int, default=64,
+                        help='Patch size to divide the full volume into')
+    parser.add_argument('-st', '--stride',
+                        type=int, default=20,
+                        help='Stride for dividing the full volume')
+    parser.add_argument('-N', '--num-sets',
+                        type=int, default=25,
+                        help='Total number of sets to use for training (Max 25)')
+    parser.add_argument('-dr', '--drop-rate',
+                        type=float, default=0,
+                        help='Drop rate to use in affine regression')
+    parser.add_argument('-cvd', '--cuda-visible-devices',
+                        type=str, default='0,1',
+                        help='Comma delimited (no spaces) list containing ' +
+                        'all available CUDA devices')
+    args = parser.parse_args()
+
     # Choose GPU device (0 or 1 available)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
     # Supress warnings
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
 
-    #=======================PARAMETERS==========================#
-    lr = 1e-2  # learning rate
-    epochs = 20  # number of epochs
-    tot_num_sets = 25  # Total number of sets to use for training (25 max, 1 is used for prediction)
+    #=================VARIABLE PARAMETERS=====================#
+    lr = args.learning_rate  # learning rate
+    epochs = args.num_epochs  # number of epochs
+    tot_num_sets = args.num_sets  # Total number of sets to use for training (25 max, 1 is used for prediction)
+    batch_size = args.batch_size
+    patch_size = args.patch_size
+    stride = args.stride
+    #==========================================================#
+    #====================FIXED PARAMETERS======================#
     validation_set_ratio = 0.2
-    batch_size = 16
-    patch_size = 100
-    stride = 20
     voxelsize = 7.0000003e-4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    filter_type = 'Bilateral_treshold'
+    filter_type = 'Bilateral_lookup'
+    #===========================================================#
+
+    #===============NETWORK SUBMODULES CONFIGURATION============#
+    ENCODER_CONFIG = {'encoder_config': (4, 4, 4, 4),
+                      'growth_rate': 12,
+                      'num_init_features': 8}
+
+    INPUT_SHAPE = (patch_size // ((2**len(ENCODER_CONFIG['encoder_config']))))**3 * 65 * 2
+
+    AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,
+                     'num_init_parameters': 1024,
+                     'affine_config': (1024, 512, 256, 128),
+                     'drop_rate': args.drop_rate}
+
+    kwargs = {'ENCODER_CONFIG': ENCODER_CONFIG,
+              'AFFINE_CONFIG': AFFINE_CONFIG}
     #===========================================================#
 
     #==================DEFINING FILES AND PATHS=================#
@@ -251,6 +291,31 @@ if __name__ == '__main__':
         epoch_writer = csv.DictWriter(els, fieldnames=fieldnames)
         epoch_writer.writeheader()
     #===========================================================#
+    import platform
+    uname = platform.uname()
+    #==================PRINT CONFIGURATION======================#
+    print('\n')
+    print('Initializing training with the following configuration:')
+    print('\n')
+    print("=" * 40, "System Information", "=" * 40)
+    print(f"System: {uname.system}")
+    print(f"Node Name: {uname.node}")
+    print(f"Release: {uname.release}")
+    print(f"Version: {uname.version}")
+    print(f"Machine: {uname.machine}")
+    print(f"Processor: {uname.processor}")
+    print("=" * 40, "GPU Information", "=" * 40)
+    print(f"CUDA_VISIBLE_DEVICES: {args.cuda_visible_devices}")
+    print(f"Device: {device}")
+    print("=" * 40, "Parameters", "=" * 40)
+    print(f"Learning rate: {lr}")
+    print(f"Epochs: {epochs}")
+    print(f"Batch size: {batch_size}")
+    print(f"Number of training sets: {tot_num_sets}")
+    print(f"Patch size: {patch_size}")
+    print(f"Stride: {stride}")
+    print('\n')
+    #===========================================================#
 
     fixed_patches, moving_patches = generate_patches(data_information=data_information,
                                                      data_files=data_files,
@@ -270,7 +335,8 @@ if __name__ == '__main__':
                                                    lr=lr,
                                                    batch_size=batch_size,
                                                    device=device,
-                                                   validation_set_ratio=validation_set_ratio
+                                                   validation_set_ratio=validation_set_ratio,
+                                                   **kwargs
                                                    )
 
     print('End training loss: ', training_loss)
