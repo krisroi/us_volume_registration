@@ -3,15 +3,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from collections import OrderedDict
-from Encoder import _Encoder
-from AffineRegression import _AffineRegression
 
 
 class USARNet(nn.Module):
+    r"""Proposed network class for affine ultrasound to ultrasound image registration.
+    Args:
+        encoder (_Encoder class): configured encoder
+        affineRegression (_AffineRegression class): configures affine regressor.
+    """
+
     def __init__(self, encoder, affineRegression):
         super(USARNet, self).__init__()
 
-        self.encoder = encoder
+        self.fixedEncoder = encoder
+        self.movingEncoder = encoder
         self.affineRegression = affineRegression
 
         # Official init from torch repo.
@@ -26,8 +31,9 @@ class USARNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, fixed, moving):
-        fixed_loc = torch.flatten(self.encoder(fixed), 1)
-        moving_loc = torch.flatten(self.encoder(moving), 1)
+        fixed_loc = torch.flatten(self.fixedEncoder(fixed), 1)
+        moving_loc = torch.flatten(self.movingEncoder(moving), 1)
+        print(fixed_loc == moving_loc)
         concated = torch.cat((fixed_loc, moving_loc), 1)
 
         theta = self.affineRegression(concated)
@@ -40,12 +46,15 @@ if __name__ == '__main__':
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
 
+    from Encoder import _Encoder
+    from AffineRegression import _AffineRegression
+
     ENCODER_CONFIG = (4, 4, 4, 4)
     DIM = 64
     BATCH_SIZE = 4
     INPUT_BATCH = torch.randn(BATCH_SIZE, 1, DIM, DIM, DIM)
 
-    encoder = _Encoder(ENCODER_CONFIG=ENCODER_CONFIG, growth_rate=12, num_init_features=8)
+    encoder = _Encoder(encoder_config=ENCODER_CONFIG, growth_rate=12, num_init_features=8)
 
     INPUT_SHAPE = (DIM // ((2**len(ENCODER_CONFIG))))**3 * 65 * 2
 
@@ -53,7 +62,6 @@ if __name__ == '__main__':
         num_input_parameters=INPUT_SHAPE,
         num_init_parameters=512,
         affine_config=(512, 256, 128, 64),
-        reduction_rate=2,
         drop_rate=0
     )
 

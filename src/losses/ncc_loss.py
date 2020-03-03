@@ -24,9 +24,8 @@ class NCC(nn.Module):
 
     def __init__(self, useRegularization=True):
         super(NCC, self).__init__()
-        
+
         self.useRegularization = useRegularization
-        print(self.useRegularization)
 
     def forward(self, fixed_patch, moving_patch, predicted_theta, weight, device, reduction='mean'):
         # Creates a forward pass for the loss function

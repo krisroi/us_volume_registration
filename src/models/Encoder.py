@@ -69,9 +69,9 @@ class _Encoder(nn.Module):
     r"""Encoder model class, largely based on the encoder presented in
     `"Efficient 3D Fully Convolutional Networks for Pulmonary Lobe Segmentation in CT Images"               <https://arxiv.org/pdf/1909.07474v1.pdf>`
     Args:
-        growth_rate (int) - how many filters to add each layer (`k` in paper)
-        encoder_config (list of 4 ints) - how many layers in each DRDB block
-        num_init_features (int) - the number of filters to learn in the first convolution layer
+        growth_rate (int): how many filters to add each layer (`k` in paper)
+        encoder_config (tuple of 4 ints): how many layers in each DRDB block
+        num_init_features (int): the number of filters to learn in the first convolution layer
     """
 
     __constants__ = ['features']
