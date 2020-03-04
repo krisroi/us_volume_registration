@@ -6,7 +6,6 @@ class NCC(nn.Module):
     r""" Creates a criterion that uses normalized cross-correlation between two input volumes together with a regularization function to compute the loss.
 
     Args:
-
         fixed_patch (tensor): fixed patch with shape [B, C, D, H, W]
         moving_patch (tensor): moving patch with shape [B, C, D, H, W]
         predicted_theta (tensor): predicted theta from network output
@@ -14,25 +13,25 @@ class NCC(nn.Module):
         reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum')
 
     Examples::
-
-        >>> criterion = NCC()
+        >>> criterion = NCC(useRegularization)
         >>> fixed_patch = torch.randn(B, C, D, H, W)
         >>> moving_patch = torch.randn(B, C, D, H, W)
-        >>> predicted_theta = affine_transform(..)
-        >>> loss = criterion(fixed_patch, moving_patch, predicted_theta, weight, reduction(opt))
+        >>> predicted_theta = net(fixed_patch, moving_patch)
+        >>> predicted_deform = affine_transform(..)
+        >>> loss = criterion(fixed_patch, predicted_deform, predicted_theta, weight, reduction(opt))
     """
 
-    def __init__(self, useRegularization=True):
+    def __init__(self, useRegularization, device):
         super(NCC, self).__init__()
 
         self.useRegularization = useRegularization
+        self.device = device
 
-    def forward(self, fixed_patch, moving_patch, predicted_theta, weight, device, reduction='mean'):
-        # Creates a forward pass for the loss function
+    def forward(self, fixed_patch, moving_patch, predicted_theta, weight, reduction='mean'):
         ncc = normalized_cross_correlation(fixed_patch, moving_patch, reduction)
         if not self.useRegularization:
             weight = 0
-        L_reg = regularization_loss(predicted_theta, weight, device)
+        L_reg = regularization_loss(predicted_theta, weight, self.device)
         return ncc + L_reg
 
 
