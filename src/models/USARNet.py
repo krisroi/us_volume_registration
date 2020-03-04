@@ -28,7 +28,6 @@ class USARNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, fixed, moving):
-        # SPLIT THIS SHIT INTO MULTIPLE STEPS
         fixed_loc = self.encoder(fixed)
         moving_loc = self.encoder(moving)
         fixed_loc = self.flatten(fixed_loc)
