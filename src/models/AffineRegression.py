@@ -62,19 +62,9 @@ class _AffineRegression(nn.Module):
 
         # Initializing last fully connected layer to the identity matrix
         self.params.fc_out.weight.data.zero_()
-        self.params.fc_out.bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float64))
+        self.params.fc_out.bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
+                                                        dtype=torch.float64))
 
     def forward(self, x):
         params = self.params(x)
         return params
-
-
-if __name__ == '__main__':
-
-    affineRegression = _AffineRegression(num_input_parameters=2032,
-                                         num_init_parameters=512,
-                                         affine_config=(512, 256, 128, 64),
-                                         drop_rate=0.2
-                                         )
-    fix = torch.randn(2, 2032)
-    print(affineRegression)
