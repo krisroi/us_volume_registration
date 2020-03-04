@@ -119,17 +119,3 @@ class _Encoder(nn.Module):
                 out = STRIDED_CONV_LAYER(out)
         out = F.relu(out, inplace=True)
         return out
-
-
-if __name__ == '__main__':
-
-    # Supress warnings
-    import warnings
-    warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
-
-    arr = torch.randn(4, 1, 64, 64, 64)
-
-    encoder_config = (4, 4, 4, 4)
-
-    net = _Encoder(encoder_config=encoder_config, growth_rate=12, num_init_features=8)
-    net(arr)
