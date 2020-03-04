@@ -13,11 +13,12 @@ from datetime import datetime
 from sklearn.utils import shuffle
 
 # Folder dependent imports
+import utils.parse_utils as pu
 from models.Encoder import _Encoder
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
 from losses.ncc_loss import NCC
-from utils.utility_functions import progress_printer
+from utils.utility_functions import progress_printer, count_parameters
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
 from utils.data import CreateDataset, GetDatasetInformation, generate_patches
@@ -50,7 +51,7 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, device, reduction='mean')
+        loss = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
         validation_loss[batch_idx] = loss.item()
 
         printer = progress_printer((batch_idx + 1) / len(validation_loader))
@@ -92,7 +93,7 @@ def train(fixed_patches, moving_patches, epoch, epochs,
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, moving_batch, predicted_theta, weight, device, reduction='mean')
+        loss = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
         loss.backward()
         training_loss[batch_idx] = loss.item()
         optimizer.step()
@@ -104,7 +105,8 @@ def train(fixed_patches, moving_patches, epoch, epochs,
 
 
 def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
-                  lr, batch_size, device, validation_set_ratio, ENCODER_CONFIG, AFFINE_CONFIG):
+                  lr, batch_size, device, validation_set_ratio,
+                  ENCODER_CONFIG, AFFINE_CONFIG, useRegularization):
 
     encoder = _Encoder(**ENCODER_CONFIG)
 
@@ -112,8 +114,9 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     net = USARNet(encoder, affineRegression).to(device)
 
-    criterion = NCC(useRegularization=False).to(device)
+    criterion = NCC(useRegularization=useRegularization, device=device).to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
+    print('Number of network parameters: ', count_parameters(net))
     #scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.5)
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -199,30 +202,33 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-lr', '--learning-rate',
-                        type=float, default=1e-2,
+                        type=pu.float_type, default=1e-2,
                         help='Learning rate for optimizer')
     parser.add_argument('-e', '--num-epochs',
-                        type=int, default=1,
+                        type=pu.int_type, default=1,
                         help='Number of steps to run training')
     parser.add_argument('-bs', '--batch-size',
-                        type=int, default=16,
+                        type=pu.int_type, default=16,
                         help='Batch size to use for training')
     parser.add_argument('-ps', '--patch-size',
-                        type=int, default=64,
+                        type=pu.int_type, default=64,
                         help='Patch size to divide the full volume into')
     parser.add_argument('-st', '--stride',
-                        type=int, default=20,
+                        type=pu.int_type, default=20,
                         help='Stride for dividing the full volume')
     parser.add_argument('-N', '--num-sets',
-                        type=int, default=25,
-                        help='Total number of sets to use for training (Max 25)')
+                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=25,
+                        help='Total number of sets to use for training')
     parser.add_argument('-dr', '--drop-rate',
-                        type=float, default=0,
+                        type=pu.float_type, default=0,
                         help='Drop rate to use in affine regression')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='0,1',
                         help='Comma delimited (no spaces) list containing ' +
                         'all available CUDA devices')
+    parser.add_argument('-ur', '--use-regularization',
+                        type=pu.str2bool, default=False,
+                        help='Apply regularization to the loss function')
     args = parser.parse_args()
 
     # Choose GPU device (0 or 1 available)
@@ -250,18 +256,19 @@ if __name__ == '__main__':
 
     #===============NETWORK SUBMODULES CONFIGURATION============#
     ENCODER_CONFIG = {'encoder_config': (4, 4, 4, 4),
-                      'growth_rate': 12,
+                      'growth_rate': 8,
                       'num_init_features': 8}
 
     INPUT_SHAPE = (patch_size // ((2**len(ENCODER_CONFIG['encoder_config']))))**3 * 65 * 2
 
     AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,
-                     'num_init_parameters': 1024,
-                     'affine_config': (1024, 512, 256, 128),
+                     'num_init_parameters': 2048,
+                     'affine_config': (2048, 512, 256, 64),
                      'drop_rate': args.drop_rate}
 
     kwargs = {'ENCODER_CONFIG': ENCODER_CONFIG,
-              'AFFINE_CONFIG': AFFINE_CONFIG}
+              'AFFINE_CONFIG': AFFINE_CONFIG,
+              'useRegularization': args.use_regularization}
     #===========================================================#
 
     #==================DEFINING FILES AND PATHS=================#
@@ -314,6 +321,7 @@ if __name__ == '__main__':
     print(f"Number of training sets: {tot_num_sets}")
     print(f"Patch size: {patch_size}")
     print(f"Stride: {stride}")
+    print(f"Using regularization: {args.use_regularization}")
     print('\n')
     #===========================================================#
 
