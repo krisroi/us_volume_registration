@@ -255,11 +255,11 @@ if __name__ == '__main__':
     #===========================================================#
 
     #===============NETWORK SUBMODULES CONFIGURATION============#
-    ENCODER_CONFIG = {'encoder_config': (4, 4, 4, 4),
+    ENCODER_CONFIG = {'encoder_config': (4, 4, 4, 4, 4),
                       'growth_rate': 8,
                       'num_init_features': 8}
 
-    INPUT_SHAPE = (patch_size // ((2**len(ENCODER_CONFIG['encoder_config']))))**3 * 65 * 2
+    INPUT_SHAPE = (patch_size // ((2**len(ENCODER_CONFIG['encoder_config']))))**3 * 129 * 2
 
     AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,
                      'num_init_parameters': 2048,
