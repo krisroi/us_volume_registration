@@ -2,16 +2,20 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import csv
 import math
-import sys
 import os
+import argparse
 from datetime import datetime
 
-from network import USAIRNet, _DenseNet, _AffineRegression
+from models.USARNet import USARNet
+from models.Encoder import _Encoder
+from models.AffineRegression import _AffineRegression
 
+import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
 from utils.patch_volume import create_patches
 from utils.ncc_loss import NCC
+from utils.utility_functions import progress_printer
 
 class CreatePredictionSet(Dataset):
     """Reads fixed- and moving patches and returns them as a Dataset object for
@@ -34,17 +38,6 @@ class CreatePredictionSet(Dataset):
 
     def __getitem__(self, idx):
         return self.fixed_patches[idx, :], self.moving_patches[idx, :], self.patch_location[idx, :]
-
-
-def progress_printer(percentage):
-    """Function returning a progress bar
-        Args:
-            percentage (float): percentage point
-    """
-    eq = '=====================>'
-    dots = '......................'
-    printer = '[{}{}]'.format(eq[len(eq) - math.ceil(percentage * 20):len(eq)], dots[2:len(eq) - math.ceil(percentage * 20)])
-    return printer
 
 
 def generate_patches(path_to_h5files, patch_size, stride, device, voxelsize):
@@ -87,18 +80,10 @@ def create_net(model_name, device):
             model_name (string): absolute path to model
             device (torch.device): device to load model on
     """
-    denseNetLoc = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
-                         num_init_features=8, bn_size=4, drop_rate=0,
-                         memory_efficient=False
-                        )
+    encoder = _Encoder(**ENCODER_CONFIG)
     
-    denseNetMov = _DenseNet(growth_rate=20, block_config=(4, 8, 16, 8),
-                         num_init_features=8, bn_size=4, drop_rate=0,
-                         memory_efficient=False
-                        )
-    
-    affineRegression = _AffineRegression()
-    net = USAIRNet(denseNetLoc, denseNetMov, affineRegression).to(device)
+    affineRegression = _AffineRegression(**AFFINE_CONFIG)
+    net = USARNet(encoder, affineRegression).to(device)
 
     print('Loading weights ...')
     model = torch.load(model_name)
@@ -182,20 +167,38 @@ def predict(path_to_h5files, patch_size, stride, device, voxelsize, model_name, 
 
 
 if __name__ == '__main__':
-
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
+    
     import warnings
     warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m', '--model-name',
+                        help='Name of the model to use for prediction',
+                        required=True)
+    parser.add_argument('-cvd', '--cuda-visible-devices',
+                        type=str, default='1',
+                        help='Number of desired CUDA core to run prediction on')
+    parser.add_argument('-bs', '--batch-size',
+                        type=pu.int_type, default=16,
+                        help='Batch size to use for prediction')
+    parser.add_argument('-ps', '--patch-size',
+                        type=pu.int_type, default=64,
+                        help='Patch size to divide the volume into')
+    parser.add_argument('-st', '--stride',
+                        type=pu.int_type, default=20,
+                        help='Stride for dividing the full volume')
+    args = parser.parse_args()
+   
 
-    model_name = str(sys.argv[1])  # Run predict with modelname from training as argument
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
+
     path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc/'
-    patch_size = 70
-    stride = 40
+    patch_size = args.patch_size
+    stride = args.stride
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     voxelsize = 7.0000003e-4
-    batch_size = 32
+    batch_size = args.batch_size
 
     with torch.no_grad():
         predict(path_to_h5files, patch_size, stride, device, voxelsize, model_name, batch_size)
