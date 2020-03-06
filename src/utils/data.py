@@ -1,5 +1,6 @@
 import torch
 import pandas as pd
+import os
 
 from sklearn.utils import shuffle
 from torch.utils.data import Dataset, DataLoader
@@ -31,6 +32,29 @@ class CreateDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.fixed_patches[idx, :], self.moving_patches[idx, :]
+
+
+class CreatePredictionSet(Dataset):
+    """Reads fixed- and moving patches and returns them as a Dataset object for
+        use with Pytorch's handy DataLoader.
+        Args:
+            fixed_patches (Tensor): Tensor containing the fixed patches
+            moving_patches (Tensor): Tensor containing the moving patches
+        Example:
+            dataset = CreateDataset(fixed_patches, moving_patches)
+            dataloader = DataLoader(dataset, **kwargs)
+    """
+
+    def __init__(self, fixed_patches, moving_patches, patch_location):
+        self.fixed_patches = fixed_patches
+        self.moving_patches = moving_patches
+        self.patch_location = patch_location
+
+    def __len__(self):
+        return self.fixed_patches.shape[0]
+
+    def __getitem__(self, idx):
+        return self.fixed_patches[idx, :], self.moving_patches[idx, :], self.patch_location[idx, :]
 
 
 class GetDatasetInformation():
@@ -76,8 +100,8 @@ class GetDatasetInformation():
         return fix_files, mov_files, fix_vols, mov_vols
 
 
-def generate_patches(data_information, data_files, filter_type,
-                     patch_size, stride, device, voxelsize, tot_num_sets):
+def generate_trainPatches(data_information, data_files, filter_type,
+                          patch_size, stride, device, voxelsize, tot_num_sets):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
             path_to_file (string): filepath to .txt file containing dataset information
@@ -155,3 +179,37 @@ def generate_patches(data_information, data_files, filter_type,
     print('\n')
 
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
+
+
+def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, stride, device, voxelsize):
+    """Loading all datasets, creates patches and store all patches in a single array.
+        Args:
+            DATA_ROOT (string): root folder to all data-files
+            data_files (string): folder containing the specific .h5 data
+            filter_type (string): filter type used for pre-processing
+            patch_size (int): desired patch size
+            stride (int): desired stride between patches
+            voxelsize (float): not used here, but create_patches has it as input
+        Returns:
+            fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
+            moving patches: all moving patches in the dataset ([num_patches, 1, **patch_size])
+            loc: location of each patch
+    """
+
+    fix_set = 'J65BP1R0_ecg_{}.h5'.format(filter_type)
+    mov_set = 'J65BP1R2_ecg_{}.h5'.format(filter_type)
+    fix_vols = '01'
+    mov_vols = '12'
+
+    print('Creating patches ... ')
+
+    vol_data = LoadHDF5File(data_files, fix_set, mov_set,
+                            fix_vols, mov_vols)
+    vol_data.normalize()
+    vol_data.to(device)
+
+    patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device, voxelsize)
+
+    print("Patched vol_data cuda: ", patched_vol_data.is_cuda)
+
+    return patched_vol_data[:, 0, :].unsqueeze(1), patched_vol_data[:, 1, :].unsqueeze(1), loc
