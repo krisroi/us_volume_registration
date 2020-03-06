@@ -12,6 +12,8 @@ from sys import platform
 from datetime import datetime
 from sklearn.utils import shuffle
 
+from config_parser import UserConfigParser, remove, write
+
 # Folder dependent imports
 import utils.parse_utils as pu
 from models.Encoder import _Encoder
@@ -21,7 +23,7 @@ from losses.ncc_loss import NCC
 from utils.utility_functions import progress_printer, count_parameters
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
-from utils.data import CreateDataset, GetDatasetInformation, generate_patches
+from utils.data import CreateDataset, GetDatasetInformation, generate_trainPatches
 
 
 def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, criterion, device, weight):
@@ -196,6 +198,10 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
 if __name__ == '__main__':
 
+    # Supress warnings
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
+
     # Manual seed for reproducibility (both CPU and CUDA)
     torch.manual_seed(0)
     np.random.seed(0)
@@ -235,10 +241,6 @@ if __name__ == '__main__':
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
-    # Supress warnings
-    import warnings
-    warnings.filterwarnings("ignore", category=UserWarning, module="torch.nn.functional")
-
     #=================VARIABLE PARAMETERS=====================#
     lr = args.learning_rate  # learning rate
     epochs = args.num_epochs  # number of epochs
@@ -255,25 +257,31 @@ if __name__ == '__main__':
     #===========================================================#
 
     #===============NETWORK SUBMODULES CONFIGURATION============#
-    ENCODER_CONFIG = {'encoder_config': (4, 4, 4, 4, 4),
-                      'growth_rate': 8,
-                      'num_init_features': 8}
+    user_config = UserConfigParser()
+    ENCODER_CONFIG = {'encoder_config': user_config.encoder_config,
+                      'growth_rate': user_config.growth_rate,
+                      'num_init_features': user_config.num_init_features}
 
-    INPUT_SHAPE = (patch_size // ((2**len(ENCODER_CONFIG['encoder_config']))))**3 * 129 * 2
+    # Calculating spatial resolution of the output of the encoder
+    spatial_resolution = (patch_size // ((2**len(user_config.encoder_config))))**3
+    num_feature_maps = user_config.num_init_features * 2**(len(user_config.encoder_config) - 1) + 1
+
+    INPUT_SHAPE = spatial_resolution * num_feature_maps * 2
 
     AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,
-                     'num_init_parameters': 2048,
-                     'affine_config': (2048, 512, 256, 64),
+                     'num_init_parameters': user_config.num_init_parameters,
+                     'affine_config': user_config.affine_config,
                      'drop_rate': args.drop_rate}
 
     kwargs = {'ENCODER_CONFIG': ENCODER_CONFIG,
               'AFFINE_CONFIG': AFFINE_CONFIG,
               'useRegularization': args.use_regularization}
     #===========================================================#
-
+    #==========REWRITING CONFIGURATION FILE FOR PREDICTION======#
+    remove()
+    write(bs=batch_size, ps=patch_size, st=stride)
+    #===========================================================#
     #==================DEFINING FILES AND PATHS=================#
-
-    # Running project on mac for testing and linux server distribution for GPU
     if platform == 'linux' or platform == 'linux2':
         PROJECT_ROOT = '/home/krisroi/'
         PROJECT_NAME = 'us_volume_registration'
@@ -325,15 +333,15 @@ if __name__ == '__main__':
     print('\n')
     #===========================================================#
 
-    fixed_patches, moving_patches = generate_patches(data_information=data_information,
-                                                     data_files=data_files,
-                                                     filter_type=filter_type,
-                                                     patch_size=patch_size,
-                                                     stride=stride,
-                                                     device=device,
-                                                     voxelsize=voxelsize,
-                                                     tot_num_sets=tot_num_sets
-                                                     )
+    fixed_patches, moving_patches = generate_trainPatches(data_information=data_information,
+                                                          data_files=data_files,
+                                                          filter_type=filter_type,
+                                                          patch_size=patch_size,
+                                                          stride=stride,
+                                                          device=device,
+                                                          voxelsize=voxelsize,
+                                                          tot_num_sets=tot_num_sets
+                                                          )
 
     training_loss, validation_loss = train_network(lossfile=lossfile,
                                                    model_name=model_name,
