@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import itertools
+
 
 class _Conv(nn.Module):
     def __init__(self, num_input_features, growth_rate, padding, dilation):
@@ -99,20 +101,22 @@ class _Encoder(nn.Module):
                                                    growth_rate=growth_rate)
             self.drd_module.add_module('DRD_BLOCK%d' % (i + 1), DRD_BLOCK)
 
-            STRIDED_CONV_LAYER = _StridedConv(num_input_features=num_features,
-                                              num_output_features=num_init_features * (2**(i + 1)))
-            self.strided_conv_module.add_module('DS_LAYER%d' % (i + 1), STRIDED_CONV_LAYER)
+            if i != len(encoder_config) - 1:
+                STRIDED_CONV_LAYER = _StridedConv(num_input_features=num_features,
+                                                  num_output_features=num_init_features * (2**(i + 1)))
+                self.strided_conv_module.add_module('DS_LAYER%d' % (i + 1), STRIDED_CONV_LAYER)
             num_features = num_init_features * (2**(i + 1)) + 1
 
     def forward(self, x):
         origInput = x
         out = self.relu(self.norm(self.conv1(self.conv0(x))))
 
-        for i, ((DRD_NAME, DRD_BLOCK), (STRIDED_CONV_NAME, STRIDED_CONV_LAYER)) in enumerate(
-                zip(self.drd_module.items(), self.strided_conv_module.items())):
+        for i, ((DRD_NAME, DRD_BLOCK), (STRIDED_CONV_NAME, STRIDED_CONV_LAYER)) in \
+                enumerate(itertools.zip_longest(self.drd_module.items(), self.strided_conv_module.items(), fillvalue=(0, 'placeholder'))):
 
             downsampled_data = F.interpolate(input=origInput,
-                                             scale_factor=(1 / (2 ** (i + 1))), mode='trilinear')
+                                             scale_factor=(1 / (2 ** (i + 1))),
+                                             mode='trilinear')
             out = torch.cat((out, downsampled_data), 1)
             out = DRD_BLOCK(out)
             if i != len(self.encoder_config) - 1:
