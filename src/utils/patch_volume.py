@@ -92,13 +92,13 @@ def create_patches(data, patch_size, stride, device, voxelsize):
     """
 
     # Returns zero if the dimensions of the volume is zero-dividable with the patch_size
-    mod = len(data[0, :]) % patch_size
-
+    #mod = len(data[0, :]) % patch_size
+    #
     # Zero-pad the volume
-    if mod != 0:
-        pad_size = patch_size - mod
-        padded = F.pad(data, (pad_size, 0, pad_size, 0, pad_size, 0))
-        data = padded
+    # if mod != 0:
+    #    pad_size = patch_size - mod
+    #    padded = F.pad(data, (pad_size, 0, pad_size, 0, pad_size, 0))
+    #    data = padded
 
     data_size = data.shape
 
