@@ -20,7 +20,7 @@ from models.Encoder import _Encoder
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
 from losses.ncc_loss import NCC
-from utils.utility_functions import progress_printer, count_parameters
+from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
 from utils.data import CreateDataset, GetDatasetInformation, generate_trainPatches
@@ -65,7 +65,7 @@ def validate(fixed_patches, moving_patches, epoch, epochs, batch_size, net, crit
 
 
 def train(fixed_patches, moving_patches, epoch, epochs,
-          batch_size, net, criterion, optimizer, device, weight):
+          batch_size, net, criterion, optimizer, device, weight, register_hook):
     """Training the model
         Args:
             fixed_patches (Tensor): Tensor holding the fixed_patches ([num_patches, 1, patch_size, patch_size, patch_size])
@@ -95,6 +95,23 @@ def train(fixed_patches, moving_patches, epoch, epochs,
         predicted_theta = net(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
+        # Plotting feature maps of the encoder
+        if register_hook:
+            # Initial convolutions
+            net.encoder.conv0.register_forward_hook(printFeatureMaps)
+            net.encoder.conv1.register_forward_hook(printFeatureMaps)
+            # Following happens inside the first dilated residual block
+            net.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer1.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer2.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer3.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer4.register_forward_hook(printFeatureMaps)
+            # Following happens at the end of each following dilated residual block
+            net.encoder.drd_module.DRD_BLOCK1.conv.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK2.conv.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK3.conv.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK4.conv.register_forward_hook(printFeatureMaps)
+            net.encoder.drd_module.DRD_BLOCK5.conv.register_forward_hook(printFeatureMaps)
+
         loss = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
         loss.backward()
         training_loss[batch_idx] = loss.item()
@@ -108,7 +125,7 @@ def train(fixed_patches, moving_patches, epoch, epochs,
 
 def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
                   lr, batch_size, device, validation_set_ratio,
-                  ENCODER_CONFIG, AFFINE_CONFIG, useRegularization):
+                  ENCODER_CONFIG, AFFINE_CONFIG, useRegularization, register_hook):
 
     encoder = _Encoder(**ENCODER_CONFIG)
 
@@ -118,7 +135,7 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     criterion = NCC(useRegularization=useRegularization, device=device).to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
-    print('Number of network parameters: ', count_parameters(net))
+    print('Number of network parameters: ', count_parameters(encoder))
     #scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.5)
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -157,7 +174,8 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
                                   criterion=criterion,
                                   optimizer=optimizer,
                                   device=device,
-                                  weight=weight
+                                  weight=weight,
+                                  register_hook=register_hook
                                   )
 
         # Validate model
@@ -235,6 +253,9 @@ if __name__ == '__main__':
     parser.add_argument('-ur', '--use-regularization',
                         type=pu.str2bool, default=False,
                         help='Apply regularization to the loss function')
+    parser.add_argument('-rh', '--register-hook',
+                        type=pu.str2bool, default=False,
+                        help='Register hook on layers to print feature maps')
     args = parser.parse_args()
 
     # Choose GPU device (0 or 1 available)
@@ -275,7 +296,8 @@ if __name__ == '__main__':
 
     kwargs = {'ENCODER_CONFIG': ENCODER_CONFIG,
               'AFFINE_CONFIG': AFFINE_CONFIG,
-              'useRegularization': args.use_regularization}
+              'useRegularization': args.use_regularization,
+              'register_hook': args.register_hook}
     #===========================================================#
     #==========REWRITING CONFIGURATION FILE FOR PREDICTION======#
     remove()
