@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
-from utils.ncc_loss import NCC
+from losses.ncc_loss import NCC
 
 def plot_fixed_moving(fixed_volume, moving_volume, warped_volume, copper_alpha, gray_alpha):
 
@@ -78,8 +78,8 @@ def align_and_plot(theta_file, path_to_h5files, copper_alpha, gray_alpha):
 
     global_theta = global_theta.view(-1, 3, 4)
 
-    fixed_image = 'DataStOlavs19to28/p22_3115007/J65BP1R0_proc.h5'
-    moving_image = 'DataStOlavs19to28/p22_3115007/J65BP1R2_proc.h5'
+    fixed_image = 'J65BP1R0_ecg_Bilateral_lookup.h5'
+    moving_image = 'J65BP1R2_ecg_Bilateral_lookup.h5'
     fix_vol = '01'
     mov_vol = '12'
 
@@ -91,10 +91,10 @@ def align_and_plot(theta_file, path_to_h5files, copper_alpha, gray_alpha):
     predicted_deformation = affine_transform(moving_volume, global_theta)
     #predicted_deformation = torch.flip(predicted_deformation, [1])
 
-    criterion = NCC()
+    criterion = NCC(useRegularization=False, device=torch.device('cpu'))
 
-    pre_alignment_loss = criterion(fixed_volume.unsqueeze(1), moving_volume, reduction='mean')
-    post_alignment_loss = criterion(fixed_volume.unsqueeze(1), predicted_deformation, reduction='mean')
+    pre_alignment_loss = criterion(fixed_volume.unsqueeze(1), moving_volume, predicted_theta=global_theta, weight=0, reduction='mean')
+    post_alignment_loss = criterion(fixed_volume.unsqueeze(1), predicted_deformation, predicted_theta=global_theta, weight=0, reduction='mean')
 
     print('Pre-alignment loss: {}'.format(pre_alignment_loss.item()))
     print('Post-alignment loss: {}'.format(post_alignment_loss.item()))
@@ -108,7 +108,7 @@ if __name__ == '__main__':
     warnings.filterwarnings('ignore', category=UserWarning, module='torch.nn.functional')
 
     theta_file = '/home/krisroi/procrustes_analysis/results.txt'
-    path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc/'
+    path_to_h5files = '/mnt/EncryptedFastData/krisroi/patient_data_proc_Bilateral_lookup/'
 
     copper_alpha = 1.0
     gray_alpha = 0.6
