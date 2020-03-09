@@ -52,9 +52,12 @@ def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride
             model_name (string): absolute path to model
             batch_size(int)
     """
-
-    loc_path = '{}loc_prediction.csv'.format(PROJECT_ROOT)
-    theta_path = '{}theta_prediction.csv'.format(PROJECT_ROOT)
+    if platform == 'linux' or platform == 'linux2':
+        loc_path = '{}procrustes_analysis/loc_prediction.csv'.format(PROJECT_ROOT)
+        theta_path = '{}procrustes_analysis/theta_prediction.csv'.format(PROJECT_ROOT)
+    else:
+        loc_path = '{}loc_prediction.csv'.format(PROJECT_ROOT)
+        theta_path = '{}theta_prediction.csv'.format(PROJECT_ROOT)
 
     with open(loc_path, 'w') as lctn:
         fieldnames = ['x_pos', 'y_pos', 'z_pos']
