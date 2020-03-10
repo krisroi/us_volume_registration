@@ -135,7 +135,7 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     criterion = NCC(useRegularization=useRegularization, device=device).to(device)
     optimizer = optim.Adam(net.parameters(), lr=lr)
-    print('Number of network parameters: ', count_parameters(encoder))
+    print('Number of network parameters: ', count_parameters(net))
     #scheduler = optim.lr_scheduler.StepLR(optimizer, 10, gamma=0.5)
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -160,7 +160,7 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     for epoch in range(epochs):
 
-        weight = (40 / (4 + math.exp(epoch / 4)))
+        weight = 1
 
         with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
             # Train model

@@ -87,10 +87,11 @@ def align_and_plot(theta_file, path_to_h5files, copper_alpha, gray_alpha):
 
     fixed_volume = vol_data.data[0, :].unsqueeze(0)
     moving_volume = vol_data.data[1, :].unsqueeze(0).unsqueeze(1)
-
+    print(fixed_volume.shape)
+    print(moving_volume.shape)
     predicted_deformation = affine_transform(moving_volume, global_theta)
     #predicted_deformation = torch.flip(predicted_deformation, [1])
-
+    print(predicted_deformation.shape)
     criterion = NCC(useRegularization=False, device=torch.device('cpu'))
 
     pre_alignment_loss = criterion(fixed_volume.unsqueeze(1), moving_volume, predicted_theta=global_theta, weight=0, reduction='mean')
