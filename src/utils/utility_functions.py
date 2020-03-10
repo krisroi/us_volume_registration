@@ -4,6 +4,7 @@ matplotlib.use('tkagg')
 import matplotlib.pyplot as plt
 import math
 import torch
+from utils.affine_transform import affine_transform
 
 
 def plot_featuremaps(data):
@@ -115,3 +116,80 @@ def printFeatureMaps(self, input, output):
     #print('input size:', input[0].size())
     print('output size:', output.data.size())
     plotFeatureMaps(output, className)
+
+
+def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROOT, PROJ_NAME, savefig=False, copperAlpha=1, grayAlpha=0.6):
+    batch_size = fixed_batch.shape[0]
+    warped_batch = affine_transform(moving_batch, predicted_theta)
+
+    x_range = batch_size
+    y_range = 2
+
+    fig_x, ax_x = plt.subplots(y_range, x_range, squeeze=False, figsize=(40, 40))
+    fig_y, ax_y = plt.subplots(y_range, x_range, squeeze=False, figsize=(40, 40))
+    fig_z, ax_z = plt.subplots(y_range, x_range, squeeze=False, figsize=(40, 40))
+
+    count = 0
+    for i in range(y_range):
+        for j in range(x_range):
+            ax_x[i, j].get_xaxis().set_visible(False)
+            ax_x[i, j].get_yaxis().set_visible(False)
+            ax_y[i, j].get_xaxis().set_visible(False)
+            ax_y[i, j].get_yaxis().set_visible(False)
+            ax_z[i, j].get_xaxis().set_visible(False)
+            ax_z[i, j].get_yaxis().set_visible(False)
+
+            ax_x[i, j].set_xlim([0, fixed_batch.shape[2]])
+            ax_x[i, j].set_ylim([fixed_batch.shape[2], 0])
+            ax_y[i, j].set_xlim([0, fixed_batch.shape[2]])
+            ax_y[i, j].set_ylim([fixed_batch.shape[2], 0])
+            ax_z[i, j].set_xlim([0, fixed_batch.shape[2]])
+            ax_z[i, j].set_ylim([fixed_batch.shape[2], 0])
+
+            if count != batch_size:
+                fixed_x = fixed_batch[count, 0, fixed_batch.shape[2] // 2]
+                fixed_y = fixed_batch[count, 0, :, fixed_batch.shape[3] // 2]
+                fixed_z = fixed_batch[count, 0, :, :, fixed_batch.shape[4] // 2]
+
+                moving_x = moving_batch[count, 0, moving_batch.shape[2] // 2]
+                moving_y = moving_batch[count, 0, :, moving_batch.shape[3] // 2]
+                moving_z = moving_batch[count, 0, :, :, moving_batch.shape[4] // 2]
+
+                warped_x = warped_batch[count, 0, warped_batch.shape[2] // 2]
+                warped_y = warped_batch[count, 0, :, warped_batch.shape[3] // 2]
+                warped_z = warped_batch[count, 0, :, :, warped_batch.shape[4] // 2]
+
+                # Plot x-slixed predictions
+                ax_x[0, j].imshow(fixed_x, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_x[0, j].imshow(moving_x, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_x[1, j].imshow(fixed_x, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_x[1, j].imshow(warped_x, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_x[0, j].title.set_text('No alignment')
+                ax_x[1, j].title.set_text('Predicted alignment')
+
+                # Plot y-slixed predictions
+                ax_y[0, j].imshow(fixed_y, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_y[0, j].imshow(moving_y, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_y[1, j].imshow(fixed_y, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_y[1, j].imshow(warped_y, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_y[0, j].title.set_text('No alignment')
+                ax_y[1, j].title.set_text('Predicted alignment')
+
+                # Plot z-slixed predictions
+                ax_z[0, j].imshow(fixed_z, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_z[0, j].imshow(moving_z, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_z[1, j].imshow(fixed_z, origin='left', cmap='copper', alpha=copperAlpha)
+                ax_z[1, j].imshow(warped_z, origin='lef', cmap='gray', alpha=grayAlpha)
+                ax_z[0, j].title.set_text('No alignment')
+                ax_z[1, j].title.set_text('Predicted alignment')
+
+                count += 1
+
+    fig_x.suptitle('x-sliced patchwise predictions for batch_size {}'.format(batch_size))
+    fig_y.suptitle('y-sliced patchwise predictions for batch_size {}'.format(batch_size))
+    fig_z.suptitle('z-sliced patchwise predictions for batch_size {}'.format(batch_size))
+    plt.show()
+
+    # if savefig:
+    #    output_dir = os.path.join(PROJ_ROOT, PROJ_NAME, 'output/predictions/')
+    #    plt.savefig('{}patch_predictionss.png'.format(output_dir), dpi=225, format='png', bbox_inches='tight', pad_inches=0)
