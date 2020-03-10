@@ -18,7 +18,7 @@ import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.load_hdf5 import LoadHDF5File
 from utils.patch_volume import create_patches
-from utils.utility_functions import progress_printer
+from utils.utility_functions import progress_printer, plotPatchwisePrediction
 from utils.data import CreatePredictionSet, generate_predictionPatches
 
 
@@ -41,7 +41,7 @@ def create_net(model_name, device, ENCODER_CONFIG, AFFINE_CONFIG):
 
 
 def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride, device,
-            voxelsize, model_name, batch_size, ENCODER_CONFIG, AFFINE_CONFIG):
+            voxelsize, model_name, batch_size, ENCODER_CONFIG, AFFINE_CONFIG, plot_patchwise_prediction):
     """Predict global transformation on a prediction set
         Args:
             path_to_h5files (string): absolute path to folder holding .h5 files
@@ -102,6 +102,14 @@ def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride
         predicted_theta = net(fixed_batch, moving_batch)
         print('Net runtime: ', datetime.now() - net_rt)
 
+        if plot_patchwise_prediction:
+            plotPatchwisePrediction(fixed_batch=fixed_batch,
+                                    moving_batch=moving_batch,
+                                    predicted_theta=predicted_theta,
+                                    PROJ_ROOT=PROJECT_ROOT,
+                                    PROJ_NAME=PROJECT_NAME
+                                    )
+
         predicted_theta = predicted_theta.view(-1, 12)
 
         predicted_theta_tmp = predicted_theta.type(dtype)
@@ -130,6 +138,9 @@ if __name__ == '__main__':
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='1',
                         help='Number of desired CUDA core to run prediction on')
+    parser.add_argument('-ppw', '--plot_patchwise_prediction',
+                        type=pu.str2bool, default=False,
+                        help='Plot patchwise predicted alignment')
     args = parser.parse_args()
 
     # GPU configuration
@@ -164,7 +175,8 @@ if __name__ == '__main__':
                      'drop_rate': 0}
 
     kwargs = {'ENCODER_CONFIG': ENCODER_CONFIG,
-              'AFFINE_CONFIG': AFFINE_CONFIG
+              'AFFINE_CONFIG': AFFINE_CONFIG,
+              'plot_patchwise_prediction': args.plot_patchwise_prediction
               }
     #===========================================================#
     #==================DEFINING FILES AND PATHS=================#
