@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from utils.patch_volume import create_patches
 from utils.utility_functions import progress_printer
-from utils.load_hdf5 import LoadHDF5File
+from utils.HDF5Data import LoadHDF5File
 
 
 class CreateDataset(Dataset):
