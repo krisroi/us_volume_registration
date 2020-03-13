@@ -160,7 +160,7 @@ def train_network(lossfile, model_name, fixed_patches, moving_patches, epochs,
 
     for epoch in range(epochs):
 
-        weight = 1
+        weight = 0.05
 
         with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
             # Train model

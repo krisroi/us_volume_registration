@@ -91,9 +91,9 @@ def plotFeatureMaps(input, className):
             ax_z[i, j].get_xaxis().set_visible(False)
             ax_z[i, j].get_yaxis().set_visible(False)
             if count != num_maps:
-                featureMap_x = input.data[0, count, input.data.shape[2] - 1]
-                featureMap_y = input.data[0, count, :, input.data.shape[2] - 1]
-                featureMap_z = input.data[0, count, :, :, input.data.shape[2] - 1]
+                featureMap_x = input.data[0, count, input.data.shape[2] // 2].cpu()
+                featureMap_y = input.data[0, count, :, input.data.shape[3] // 2].cpu()
+                featureMap_z = input.data[0, count, :, :, input.data.shape[4] // 2].cpu()
                 ax_x[i, j].imshow(featureMap_x, origin='left', cmap='gray')
                 ax_y[i, j].imshow(featureMap_y, origin='left', cmap='gray')
                 ax_z[i, j].imshow(featureMap_z, origin='left', cmap='gray')
