@@ -16,7 +16,7 @@ from models.AffineRegression import _AffineRegression
 from losses.ncc_loss import NCC
 import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
-from utils.load_hdf5 import LoadHDF5File
+from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.patch_volume import create_patches
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
 from utils.data import CreatePredictionSet, generate_predictionPatches
@@ -93,6 +93,9 @@ def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride
     predicted_theta_tmp = torch.zeros([1, batch_size, 12]).type(dtype).to(device)
     loc_tmp = torch.zeros([1, batch_size, 3]).type(dtype).to(device)
 
+    sampleNumber = 1
+    saveData = SaveHDF5File(DATA_ROOT)
+
     for batch_idx, (fixed_batch, moving_batch, loc) in enumerate(prediction_loader):
 
         printer = progress_printer((batch_idx + 1) / len(prediction_loader))
@@ -101,6 +104,13 @@ def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride
         net_rt = datetime.now()
         predicted_theta = net(fixed_batch, moving_batch)
         print('Net runtime: ', datetime.now() - net_rt)
+
+        warped_batch = affine_transform(moving_batch, predicted_theta)
+
+        saveData.save_hdf5(fixed_batch=fixed_batch,
+                           moving_batch=moving_batch,
+                           warped_batch=warped_batch,
+                           sampleNumber=sampleNumber)
 
         if plot_patchwise_prediction:
             plotPatchwisePrediction(fixed_batch=fixed_batch,
@@ -122,6 +132,8 @@ def predict(DATA_ROOT, data_files, filter_type, PROJECT_ROOT, patch_size, stride
         with open(theta_path, 'a') as tht:
             theta_writer = csv.writer(tht)
             theta_writer.writerows((predicted_theta_tmp.cpu().numpy()))
+
+        sampleNumber += batch_size
 
     print('Prediction runtime: ', datetime.now() - prediction_start_time)
 
