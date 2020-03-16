@@ -108,9 +108,9 @@ class SaveHDF5File():
         batch_size = fixed_batch.shape[0]
 
         for sample_idx in range(batch_size):
-            fixed_vol_data = fixed_batch[sample_idx, 0, :]
-            moving_vol_data = moving_batch[sample_idx, 0, :]
-            warped_vol_data = warped_batch[sample_idx, 0, :]
+            fixed_vol_data = fixed_batch[sample_idx, 0, :].cpu()
+            moving_vol_data = moving_batch[sample_idx, 0, :].cpu()
+            warped_vol_data = warped_batch[sample_idx, 0, :].cpu()
 
             fixed_vol_data = self.rescale(fixed_vol_data).int().numpy()
             moving_vol_data = self.rescale(moving_vol_data).int().numpy()
