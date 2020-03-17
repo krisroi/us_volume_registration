@@ -87,7 +87,7 @@ def parse():
     parser = argparse.ArgumentParser(description='Ultrasound Registration network training')
     parser.add_argument('--model-name',
                         type=str, required=True,
-                        help='name the model.')
+                        help='Name the model (without file extension).')
     parser.add_argument('-lr',
                         type=pu.float_type, default=1e-2,
                         help='Learning rate for optimizer')
