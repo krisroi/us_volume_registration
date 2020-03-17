@@ -9,7 +9,8 @@ __pycache__/
 # Project specific
 **.DS_Store
 
-# Exclude output
+# Exclude output and archive
+archive/
 output/
 
 # Exclude old network model
