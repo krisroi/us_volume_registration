@@ -13,6 +13,7 @@ class UserConfigParser:
     def __parse_content(self):
         self.__parse_network()
         self.__parse_predict()
+        self.__parse_path()
 
     def __parse_network(self):
         if self.config.has_option('Network', 'encoder_config'):
@@ -55,6 +56,32 @@ class UserConfigParser:
             self.stride = int(self.config['Predict']['stride'].split('#')[0].strip())
         else:
             raise AttributeError('Missing parameter [Predict][stride]')
+
+    def __parse_path(self):
+        if self.config.has_option('Path', 'project_root'):
+            if not os.path.exists(self.config['Path']['project_root'].split('#')[0].strip()):
+                raise OSError('Path to PROJECT_ROOT not found')
+            self.PROJECT_ROOT = self.config['Path']['project_root'].split('#')[0].strip()
+        else:
+            raise AttributeError('Missing parameter [Path][PROJECT_ROOT]')
+
+        if self.config.has_option('Path', 'project_name'):
+            if not os.path.exists(os.path.join(self.PROJECT_ROOT, self.config['Path']['project_name']).split('#')[0].strip()):
+                raise OSError('Path to PROJECT_NAME not found')
+            self.PROJECT_NAME = self.config['Path']['project_name'].split('#')[0].strip()
+        else:
+            raise AttributeError('Missing parameter [Path][project_name]')
+
+        if self.config.has_option('Path', 'data_root'):
+            if not os.path.exists(self.config['Path']['data_root'].split('#')[0].strip()):
+                raise OSError('Path to DATA_ROOT not found')
+            self.DATA_ROOT = self.config['Path']['data_root'].split('#')[0].strip()
+        else:
+            raise AttributeError('Missing parameter [Path][DATA_ROOT]')
+
+        if self.config.has_option('Path', 'procrustes'):
+            if not os.path.exists(os.path.join(self.PROJECT_ROOT, self.config['Path']['procrustes'])):
+                os.makedirs(os.path.join(self.PROJECT_ROOT, self.config['Path']['procrustes']))
 
 
 def remove():
