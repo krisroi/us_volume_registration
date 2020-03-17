@@ -210,6 +210,4 @@ def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, s
 
     patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device, voxelsize)
 
-    print("Patched vol_data cuda: ", patched_vol_data.is_cuda)
-
     return patched_vol_data[:, 0, :].unsqueeze(1), patched_vol_data[:, 1, :].unsqueeze(1), loc
