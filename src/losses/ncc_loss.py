@@ -59,7 +59,7 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
 
 
 def extract(predicted_theta):
-    IDT = torch.tensor([1, 0, 0, 0, 1, 0, 0, 0, 1], dtype=torch.float64)
+    IDT = torch.tensor([1, 0, 0, 0, 1, 0, 0, 0, 1], dtype=torch.float32)
     IDT = IDT.view(-1, 3, 3)
 
     A = predicted_theta[:, :, 0:3]

@@ -63,7 +63,7 @@ class _AffineRegression(nn.Module):
         # Initializing last fully connected layer to the identity matrix
         self.params.fc_out.weight.data.zero_()
         self.params.fc_out.bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
-                                                        dtype=torch.float64))
+                                                        dtype=torch.float32))
 
     def forward(self, x):
         params = self.params(x)
