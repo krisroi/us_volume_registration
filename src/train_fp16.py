@@ -15,6 +15,7 @@ try:
     from apex.fp16_utils import *
     from apex import amp, optimizers
     from apex.multi_tensor_apply import multi_tensor_applier
+    apexImportError = False
 except ImportError:
     print('ImportWarning: Please install apex from https://www.github.com/nvidia/apex to run with mixed precision training.')
     print('Continuing training with full precision.')
