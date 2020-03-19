@@ -13,6 +13,7 @@ try:
     from apex.fp16_utils import *
     from apex import amp, optimizers
     from apex.multi_tensor_apply import multi_tensor_applier
+    apexImportError = False
 except ImportError:
     print('ImportWarning: Please install apex from https://www.github.com/nvidia/apex to run with mixed precision prediction.')
     print('Continuing prediction with full precision.')
@@ -79,7 +80,9 @@ class FileHandler():
 
 
 def parse():
-    model_names = sorted(name for name in os.listdir(os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/models/')))
+    model_names = sorted(name for name in os.listdir(os.path.join(user_config.PROJECT_ROOT, 
+                                                                  user_config.PROJECT_NAME,
+                                                                  'output/models/')).split('.')[0].strip())
     parser = argparse.ArgumentParser(description='Ultrasound Image registration prediction')
     parser.add_argument('-m', '--model-name',
                         choices=model_names, required=True,
@@ -111,6 +114,7 @@ def main():
 
     user_config = UserConfigParser()  # Parse main_config.ini
     args = parse()
+    print(args.model_name)
 
     # GPU configuration
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -142,11 +146,15 @@ def main():
     print(f"Prediction precision: float32") if apexImportError else print(f"Prediction precision: {args.precision}")
     print('\n')
 
-    model_name = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/models/{}'.format(args.model_name))
-    data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
+    model_name = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 
+                              'output/models/{}.pt'.format(args.model_name))
+    data_files = os.path.join(user_config.DATA_ROOT, 
+                              'patient_data_proc_{}/'.format(args.filter_type))
 
-    posFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 'loc_prediction.csv')
-    thetaFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 'theta_prediction.csv')
+    posFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 
+                           'loc_prediction_{}.csv'.format(args.model_name))
+    thetaFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 
+                             'theta_prediction_{}.csv'.format(args.model_name))
 
     predictionStorage = FileHandler(posFile, thetaFile)
     predictionStorage.create()
