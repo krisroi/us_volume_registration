@@ -16,3 +16,28 @@ T.Matin, F. Gleeson and V. Grau.
 
 Both training and prediction has the ability to run using the automatic [mixed precision (amp) strategy](https://arxiv.org/pdf/1710.03740.pdf) in addition to the regular 
 single precision (float32). This is done using Apex from NVIDIA, which can be found [here](https://github.com/nvidia/apex).
+
+
+# Configuration file 
+
+In order to run the project, a configuration file needs to be placed inside the src/ folder. The structure of the configuratuion file should be as following:
+
+    [Network]
+    encoder_config = 4, 4, 4, 4, 4
+    growth_rate = 8
+    num_init_features = 8
+    affine_config = 2048, 512, 256, 64
+    num_init_parameters = 2048
+
+    [Path]
+    project_root = /home/krisroi/ # Root folder for project
+    project_name = us_volume_registration # Root folder for git repo
+    data_root = /mnt/EncryptedFastData/krisroi/ # Root folder for data
+    procrustes = procrustes_analysis # Folder-name that runs the procrustes analysis. 
+
+    [Predict]
+    batch_size = 16
+    patch_size = 128
+    stride = 50
+
+The [Predict] group will be overwritten of the training-script to ensure that training and prediction is run on the same patch size. Changing stride and batch size would be optional. 
