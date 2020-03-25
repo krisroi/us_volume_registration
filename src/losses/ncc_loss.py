@@ -3,7 +3,8 @@ import torch.nn as nn
 
 
 class NCC(nn.Module):
-    r""" Creates a criterion that uses normalized cross-correlation between two input volumes together with a regularization function to compute the loss.
+    r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together 
+        with a regularization function to compute the loss.
 
     Args:
         fixed_patch (tensor): fixed patch with shape [B, C, D, H, W]
@@ -32,14 +33,18 @@ class NCC(nn.Module):
         if not self.useRegularization:
             weight = 0
         L_reg = regularization_loss(predicted_theta, weight, self.device)
-        return ncc + L_reg
+        return (1 - ncc) + L_reg
 
 
 def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
-    """Compute ncc and return 1 - ncc as similarity loss
+    """Compute and return zncc ([0, 1])
+        Note:
+            Reduction option 'None' should only be used when computing zero-ncc
+            and not backpropagating loss. For backpropagation, the loss-matrix
+            needs to be reduced to a single item.
     """
-    fixed = (fixed_patch[:] - torch.mean(fixed_patch, (2, 3, 4), keepdim=True))
-    moving = (moving_patch[:] - torch.mean(moving_patch, (2, 3, 4), keepdim=True))
+    fixed = (fixed_patch[:])
+    moving = (moving_patch[:])
 
     fixed_variance = torch.sqrt(torch.sum(torch.pow(fixed, 2), (2, 3, 4)))
     moving_variance = torch.sqrt(torch.sum(torch.pow(moving, 2), (2, 3, 4)))
@@ -54,11 +59,16 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
         ncc = torch.mean(ncc, dim=0)
     elif reduction == 'sum':
         ncc = torch.sum(ncc, dim=0)
+    elif reduction == None:
+        ncc = ncc
 
-    return 1 - ncc
+    return ncc
 
 
 def extract(predicted_theta):
+    """Extract rotation (A) and translation (b) part from predicted theta
+        and return together with an instance of the identity matrix.
+    """
     IDT = torch.tensor([1, 0, 0, 0, 1, 0, 0, 0, 1], dtype=torch.float32)
     IDT = IDT.view(-1, 3, 3)
 
@@ -69,6 +79,8 @@ def extract(predicted_theta):
 
 
 def regularization_loss(predicted_theta, weight, device):
+    """Regularization functions that computes the Frobenius norm.
+    """
     IDT, A, b = extract(predicted_theta)
     return weight * ((torch.norm((A - IDT.to(device)), p='fro'))**2 + (torch.norm(b, p=2))**2)
 
