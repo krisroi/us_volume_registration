@@ -78,14 +78,13 @@ def calculatePatchIdx3D(num_image, patch_size, image_size, step_size):
 #======================================================================================#
 
 
-def create_patches(data, patch_size, stride, device, voxelsize):
+def create_patches(data, patch_size, stride, device):
     """ Patches the volumetric input data, using the patch_size and the stride.
     Args:
         data (Tensor): volumetric data, both moving and fixed
         patch_size (int): desired shape of each patch (patch_size x patch_size x patch_size)
         stride (int): stride length of the patches, defines the overlap. If stride = patch_size, there is no overlap.
         device (torch.device): desired device to run code on
-        voxelsize (float): size of voxels in the .h5 images
     Returns:
         Patched volumetric data, defined by the patch size and stride.
         shape: [num_patches, num_channels, patch_size, patch_size, patch_size]
@@ -154,4 +153,4 @@ def create_patches(data, patch_size, stride, device, voxelsize):
 
         loc[slices] = patch_pos[1:4]
 
-    return patched_data, (loc * voxelsize)
+    return patched_data,loc

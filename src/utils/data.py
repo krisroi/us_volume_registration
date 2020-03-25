@@ -101,7 +101,7 @@ class GetDatasetInformation():
 
 
 def generate_trainPatches(data_information, data_files, filter_type,
-                          patch_size, stride, device, voxelsize, tot_num_sets):
+                          patch_size, stride, device, tot_num_sets):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
             path_to_file (string): filepath to .txt file containing dataset information
@@ -109,7 +109,6 @@ def generate_trainPatches(data_information, data_files, filter_type,
             path_to_h5files (string): path to .h5 files
             patch_size (int): desired patch size
             stride (int): desired stride between patches
-            voxelsize (float): not used here, but create_patches has it as input
             tot_num_sets (int): desired number of sets to use in the model
         Returns:
             fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
@@ -145,7 +144,7 @@ def generate_trainPatches(data_information, data_files, filter_type,
         vol_data.normalize()
         vol_data.to(device)
 
-        patched_vol_data, _ = create_patches(vol_data.data, patch_size, stride, device, voxelsize)
+        patched_vol_data, _ = create_patches(vol_data.data, patch_size, stride, device)
         patched_vol_data = patched_vol_data.cpu()
 
         fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
@@ -181,7 +180,7 @@ def generate_trainPatches(data_information, data_files, filter_type,
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
 
 
-def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, stride, device, voxelsize):
+def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, stride, device):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
             DATA_ROOT (string): root folder to all data-files
@@ -189,7 +188,6 @@ def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, s
             filter_type (string): filter type used for pre-processing
             patch_size (int): desired patch size
             stride (int): desired stride between patches
-            voxelsize (float): not used here, but create_patches has it as input
         Returns:
             fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
             moving patches: all moving patches in the dataset ([num_patches, 1, **patch_size])
@@ -208,6 +206,6 @@ def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, s
     vol_data.normalize()
     vol_data.to(device)
 
-    patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device, voxelsize)
+    patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device)
 
     return patched_vol_data[:, 0, :].unsqueeze(1), patched_vol_data[:, 1, :].unsqueeze(1), loc
