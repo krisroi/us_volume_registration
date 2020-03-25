@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
-from losses.ncc_loss import NCC
+from losses.ncc_loss import normalized_cross_correlation
 from config_parser import UserConfigParser
 
 
@@ -21,7 +21,7 @@ def parse():
                         type=str, required=True,
                         help='Full path to the file containing the global theta. That includes filename.')
     parser.add_argument('--filter-type',
-                        choices={"Bilateral_lookup"}, default="Bilateral_lookup",
+                        choices={"Bilateral_lookup", "NLMF_lookup"}, default="Bilateral_lookup",
                         help='Specify the filter-type of the files to align')
     parser.add_argument('--save-filename',
                         type=str, default=None,
@@ -30,7 +30,7 @@ def parse():
                         type=pu.float_type, default=1.0,
                         help='Specify opacity of the fixed volume. 1.0 = no opacity')
     parser.add_argument('--g-alpha',
-                        type=pu.float_type, default=0.6,
+                        type=pu.float_type, default=0.5,
                         help='Specify opacity of the moving volume. 1.0 = no opacity')
     args = parser.parse_args()
 
@@ -47,6 +47,8 @@ def main():
     moving_image = 'J65BP1R2_ecg_{}.h5'.format(args.filter_type)
     fix_vol = '01'
     mov_vol = '12'
+    
+    voxelsize = 7.000003e-4
 
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
 
@@ -61,22 +63,23 @@ def main():
     with open(args.theta_path, 'r') as readTheta:
         for i, theta in enumerate(readTheta.read().split()):
             if theta != '1' and theta != '0':
-                global_theta.append(float(theta))
+                if i == 3 or i == 7 or i == 11:
+                    global_theta.append(float(theta)*voxelsize*10)
+                else:
+                    global_theta.append(float(theta))
+
 
     global_theta = torch.Tensor(global_theta)
     global_theta = global_theta.view(-1, 3, 4)  # Get theta on correct form for affine transform
-
+    print(global_theta)
+        
     warped_volume = affine_transform(moving_volume, global_theta)
 
-    # Define criterion to compute similarity pre- and post warping of the volume.
-    # Device is cpu because it does not require any GPU computing power.
-    criterion = NCC(useRegularization=False, device=torch.device('cpu'))
+    pre_loss = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
+    post_loss = normalized_cross_correlation(fixed_volume, warped_volume, reduction=None)
 
-    pre_loss = criterion(fixed_volume, moving_volume, predicted_theta=global_theta, weight=0, reduction='mean')
-    post_loss = criterion(fixed_volume, warped_volume, predicted_theta=global_theta, weight=0, reduction='mean')
-
-    print('1 - ncc similarity pre warping:  ', pre_loss)
-    print('1 - ncc similarity post warping: ', post_loss)
+    print('ncc similarity pre warping:  ', pre_loss)
+    print('ncc similarity post warping: ', post_loss)
 
     plot_volumes(fixed_volume, moving_volume, warped_volume)
 
