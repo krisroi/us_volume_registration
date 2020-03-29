@@ -37,7 +37,8 @@ from losses.ncc_loss import NCC
 from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
-from utils.data import CreateDataset, GetDatasetInformation, generate_trainPatches
+from utils.data import CreateDataset, GetDatasetInformation, generate_trainPatches, shuffle_patches
+from utils.Transform import RandomAffine
 
 
 class FileHandler():
@@ -128,6 +129,9 @@ def parse():
                         type=str, default='amp',
                         choices={'amp', 'full'},
                         help='Choose precision to do training. (amp - automatic mixed, full - float32')
+    parser.add_argument('-da', type=pu.str2bool,
+                        default=False,
+                        help='Perform data augmentation')
     args = parser.parse_args()
 
     return args
@@ -179,6 +183,7 @@ def main():
     print(f"Using regularization: {args.ur}")
     print(f"Filter type: {args.filter_type}")
     print(f"Training precision: float32") if apexImportError else print(f"Training precision: {args.precision}")
+    print(f"Perform data augmentation: {args.da}")
     print('\n')
 
     # Defining filepaths
@@ -199,6 +204,25 @@ def main():
                                                           device=device,
                                                           tot_num_sets=args.num_sets
                                                           )
+
+    # Perform data augmentation
+    if args.da:
+
+        # Pick 10% of fixed patches and perform augmentation on them
+        fixed_set = fixed_patches[0:math.ceil((10 * fixed_patches.shape[0]) / 100), :]
+
+        transform = RandomAffine(degrees=(1), translation=(0, 3), voxelsize=voxelsize)
+        transformed_fixed_patches = transform(fixed_set)
+
+        fixed_patches = torch.cat((fixed_patches, fixed_set), dim=0)
+        moving_patches = torch.cat((moving_patches, transformed_fixed_patches), dim=0)
+
+        fixed_patches, moving_patches = shuffle_patches(fixed_patches, moving_patches)
+
+        print(fixed_patches.shape)
+        print(moving_patches.shape)
+
+        exit()
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
     moving_training_patches = moving_patches[0:math.floor(moving_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -234,13 +258,13 @@ def main():
 
     print('Initializing training')
     print('\n')
-    
+
     train_starttime = datetime.now()
 
     for epoch in range(args.epochs):
 
         # Weight for regularization of loss function.
-        weight = 12 / ( 2 + math.exp(epoch / 2))
+        weight = 12 / (2 + math.exp(epoch / 2))
 
         with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
 
@@ -280,10 +304,10 @@ def main():
 
         # Write loss to file
         lossStorage.write(epoch, epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item())
-    
+
     print('Training ended after ', datetime.now() - train_starttime)
     print('\n')
-    print('Train loss:      ', epoch_train_loss) 
+    print('Train loss:      ', epoch_train_loss)
     print('Validation loss: ', epoch_validation_loss)
 
 
