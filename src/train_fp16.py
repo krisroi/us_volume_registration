@@ -122,7 +122,7 @@ def parse():
                         help='Register hook on layers to print feature maps')
     parser.add_argument('-ft', '--filter-type',
                         type=str, default='Bilateral_lookup',
-                        choices={"Bilateral_lookup"},
+                        choices={"Bilateral_lookup", "NLMF_lookup"},
                         help='Filter type to train network with')
     parser.add_argument('--precision',
                         type=str, default='amp',
@@ -197,7 +197,6 @@ def main():
                                                           patch_size=args.patch_size,
                                                           stride=args.stride,
                                                           device=device,
-                                                          voxelsize=voxelsize,
                                                           tot_num_sets=args.num_sets
                                                           )
 
@@ -235,11 +234,13 @@ def main():
 
     print('Initializing training')
     print('\n')
+    
+    train_starttime = datetime.now()
 
     for epoch in range(args.epochs):
 
         # Weight for regularization of loss function.
-        weight = 0.05
+        weight = 12 / ( 2 + math.exp(epoch / 2))
 
         with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
 
@@ -279,8 +280,11 @@ def main():
 
         # Write loss to file
         lossStorage.write(epoch, epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item())
-
-    print(epoch_train_loss, epoch_validation_loss)
+    
+    print('Training ended after ', datetime.now() - train_starttime)
+    print('\n')
+    print('Train loss:      ', epoch_train_loss) 
+    print('Validation loss: ', epoch_validation_loss)
 
 
 def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, weight, device):
