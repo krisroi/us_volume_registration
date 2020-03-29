@@ -100,6 +100,34 @@ class GetDatasetInformation():
         return fix_files, mov_files, fix_vols, mov_vols
 
 
+def shuffle_patches(fixed_patches, moving_patches):
+
+    shuffled_fixed_patches = torch.Tensor(fixed_patches.shape).cpu()
+    shuffled_moving_patches = torch.Tensor(moving_patches.shape).cpu()
+
+    shuffler = CreateDataset(fixed_patches, moving_patches)
+    del fixed_patches, moving_patches
+    shuffle_loader = DataLoader(shuffler, batch_size=1, shuffle=True, num_workers=0, pin_memory=False)
+    del shuffler
+
+    print('Shuffling patches ...')
+
+    for batch_idx, (fixed_patches, moving_patches) in enumerate(shuffle_loader):
+
+        printer = progress_printer(batch_idx / len(shuffle_loader))
+        print(printer, end='\r')
+
+        shuffled_fixed_patches[batch_idx, :] = fixed_patches
+        shuffled_moving_patches[batch_idx, :] = moving_patches
+
+        del fixed_patches, moving_patches
+
+    print('Finished shuffling patches')
+    print('\n')
+
+    return shuffled_fixed_patches, shuffled_moving_patches
+
+
 def generate_trainPatches(data_information, data_files, filter_type,
                           patch_size, stride, device, tot_num_sets):
     """Loading all datasets, creates patches and store all patches in a single array.
@@ -154,28 +182,7 @@ def generate_trainPatches(data_information, data_files, filter_type,
 
     print('Finished creating patches')
 
-    shuffled_fixed_patches = torch.zeros((fixed_patches.shape[0], patch_size, patch_size, patch_size)).cpu()
-    shuffled_moving_patches = torch.zeros((fixed_patches.shape[0], patch_size, patch_size, patch_size)).cpu()
-
-    shuffler = CreateDataset(fixed_patches, moving_patches)
-    del fixed_patches, moving_patches
-    shuffle_loader = DataLoader(shuffler, batch_size=1, shuffle=True, num_workers=0, pin_memory=False)
-    del shuffler
-
-    print('Shuffling patches ...')
-
-    for batch_idx, (fixed_patches, moving_patches) in enumerate(shuffle_loader):
-
-        printer = progress_printer(batch_idx / len(shuffle_loader))
-        print(printer, end='\r')
-
-        shuffled_fixed_patches[batch_idx, :] = fixed_patches
-        shuffled_moving_patches[batch_idx, :] = moving_patches
-
-        del fixed_patches, moving_patches
-
-    print('Finished shuffling patches')
-    print('\n')
+    shuffled_fixed_patches, shuffled_moving_patches = shuffle_patches(fixed_patches, moving_patches)
 
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
 
