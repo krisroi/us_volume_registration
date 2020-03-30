@@ -27,7 +27,7 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import NCC
+from losses.ncc_loss import NCC, normalized_cross_correlation
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
@@ -96,13 +96,13 @@ def parse():
                         help='Plot patchwise predicted alignment')
     parser.add_argument('-ft', '--filter-type',
                         type=str, default='Bilateral_lookup',
-                        choices={"Bilateral_lookup"},
+                        choices={"Bilateral_lookup", "NLMF_lookup"},
                         help='Filter type for prediction')
-    parser.add_argument('--precision',
+    parser.add_argument('-pr', '--precision',
                         type=str, default='amp',
                         choices={'amp', 'full'},
                         help='Choose precision to do training. (amp - automatic mixed, full - float32')
-    parser.add_argument('--save-data',
+    parser.add_argument('-sd', '--save-data',
                         type=pu.str2bool, default=False,
                         help='Enables saving of patchwise predictions as HDF5 data')
     args = parser.parse_args()
@@ -150,9 +150,9 @@ def main():
     data_files = os.path.join(user_config.DATA_ROOT,
                               'patient_data_proc_{}/'.format(args.filter_type))
 
-    posFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis',
+    posFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 'loc_predictions',
                            'loc_prediction_{}.csv'.format(args.model_name))
-    thetaFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis',
+    thetaFile = os.path.join(user_config.PROJECT_ROOT, 'procrustes_analysis', 'theta_predictions',
                              'theta_prediction_{}.csv'.format(args.model_name))
 
     predictionStorage = FileHandler(posFile, thetaFile)
@@ -177,21 +177,20 @@ def main():
 
     criterion = NCC(useRegularization=False, device=device)
 
-    fixed_patches, moving_patches, loc = generate_predictionPatches(DATA_ROOT=user_config.DATA_ROOT,
-                                                                    data_files=data_files,
-                                                                    filter_type=args.filter_type,
-                                                                    patch_size=user_config.patch_size,
-                                                                    stride=user_config.stride,
-                                                                    device=device,
-                                                                    voxelsize=voxelsize)
+    fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
+                                                                     data_files=data_files,
+                                                                     filter_type=args.filter_type,
+                                                                     patch_size=user_config.patch_size,
+                                                                     stride=user_config.stride,
+                                                                     device=device)
 
     print('\n')
     print('Number of prediction samples: {}'.format(fixed_patches.shape[0]))
     print('\n')
 
-    prediction_set = CreatePredictionSet(fixed_patches, moving_patches, loc)
-    prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size, shuffle=False,
-                                   num_workers=0, pin_memory=False, drop_last=False)
+    prediction_set = CreateDataset(fixed_patches, moving_patches, loc)
+    prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size, 
+                                   shuffle=False, num_workers=0, pin_memory=False, drop_last=False)
 
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     predicted_theta_tmp = torch.zeros([1, user_config.batch_size, 12]).type(dtype).to(device)
@@ -224,9 +223,9 @@ def main():
                                    sampleNumber=sampleNumber)
 
             if args.plot_patchwise_prediction:
-                plotPatchwisePrediction(fixed_batch=fixed_batch,
-                                        moving_batch=moving_batch,
-                                        predicted_theta=predicted_theta,
+                plotPatchwisePrediction(fixed_batch=fixed_batch.cpu(),
+                                        moving_batch=moving_batch.cpu(),
+                                        predicted_theta=predicted_theta.cpu(),
                                         PROJ_ROOT=user_config.PROJECT_ROOT,
                                         PROJ_NAME=user_config.PROJECT_NAME
                                         )
@@ -240,9 +239,31 @@ def main():
                                     )
 
             sampleNumber += user_config.batch_size
+            
+            preWarpNcc = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
+            postWarpNcc = normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
+            
+            print_patchloss(preWarpNcc, postWarpNcc)
+            
+
+def print_patchloss(preWarpNcc, postWarpNcc):
+    
+    print('*'*100)
+    print('Patch num in batch' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' + 
+          'Improvement' + ' | ' + 'Percentwice imp.')
+    
+    for idx in range(preWarpNcc.shape[0]):
+        pre = preWarpNcc[idx,:].item()
+        post = postWarpNcc[idx,:].item()
+        diff = post - pre
+        percent = 100 - ((pre/post)*100)
+        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(idx, round(pre, 4), round(post, 4), 
+                                                       round(diff, 4), round(percent, 2)))
 
 
 def network_config():
+    """Configuration of the network. Reads data from main_config.ini.
+    """
     ENCODER_CONFIG = {'encoder_config': user_config.encoder_config,
                       'growth_rate': user_config.growth_rate,
                       'num_init_features': user_config.num_init_features}

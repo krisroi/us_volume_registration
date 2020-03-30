@@ -87,7 +87,7 @@ class FileHandler():
 
 def parse():
     parser = argparse.ArgumentParser(description='Ultrasound Registration network training')
-    parser.add_argument('--model-name',
+    parser.add_argument('-m', '--model-name',
                         type=str, required=True,
                         help='Name the model (without file extension).')
     parser.add_argument('-lr',
@@ -100,10 +100,10 @@ def parse():
                         type=pu.int_type, default=16,
                         help='Batch size to use for training')
     parser.add_argument('-ps', '--patch-size',
-                        type=pu.int_type, default=64,
+                        type=pu.int_type, default=128,
                         help='Patch size to divide the full volume into')
     parser.add_argument('-st', '--stride',
-                        type=pu.int_type, default=20,
+                        type=pu.int_type, default=25,
                         help='Stride for dividing the full volume')
     parser.add_argument('-N', '--num-sets',
                         type=pu.range_limited_int_type_TOT_NUM_SETS, default=25,
@@ -112,7 +112,7 @@ def parse():
                         type=pu.float_type, default=0,
                         help='Drop rate to use in affine regression')
     parser.add_argument('-cvd', '--cuda-visible-devices',
-                        type=str, default='0,1',
+                        type=str, default='0',
                         help='Comma delimited (no spaces) list containing ' +
                         'all available CUDA devices')
     parser.add_argument('-ur',
@@ -125,10 +125,10 @@ def parse():
                         type=str, default='Bilateral_lookup',
                         choices={"Bilateral_lookup", "NLMF_lookup"},
                         help='Filter type to train network with')
-    parser.add_argument('--precision',
-                        type=str, default='amp',
-                        choices={'amp', 'full'},
-                        help='Choose precision to do training. (amp - automatic mixed, full - float32')
+    parser.add_argument('-pr', '--precision',
+                        type=str, default='full',
+                        choices={'full', 'amp'},
+                        help='Choose precision to do training. (full - float32 (default), amp - automatic mixed')
     parser.add_argument('-da', type=pu.str2bool,
                         default=False,
                         help='Perform data augmentation')
@@ -196,33 +196,30 @@ def main():
                               st=args.stride, ns=args.num_sets, device=device, lossfile=lossfile)
     lossStorage.create()
 
-    fixed_patches, moving_patches = generate_trainPatches(data_information=data_information,
-                                                          data_files=data_files,
-                                                          filter_type=args.filter_type,
-                                                          patch_size=args.patch_size,
-                                                          stride=args.stride,
-                                                          device=device,
-                                                          tot_num_sets=args.num_sets
-                                                          )
+    fixed_patches, moving_patches = generate_train_patches(data_information=data_information,
+                                                           data_files=data_files,
+                                                           filter_type=args.filter_type,
+                                                           patch_size=args.patch_size,
+                                                           stride=args.stride,
+                                                           device=device,
+                                                           tot_num_sets=args.num_sets
+                                                           )
 
     # Perform data augmentation
     if args.da:
+        print('Performing data augmentation')
 
         # Pick 10% of fixed patches and perform augmentation on them
         fixed_set = fixed_patches[0:math.ceil((10 * fixed_patches.shape[0]) / 100), :]
 
-        transform = RandomAffine(degrees=(1), translation=(0, 3), voxelsize=voxelsize)
+        transform = RandomAffine(degrees=(0), translation=(0, 3), voxelsize=voxelsize)
         transformed_fixed_patches = transform(fixed_set)
 
         fixed_patches = torch.cat((fixed_patches, fixed_set), dim=0)
         moving_patches = torch.cat((moving_patches, transformed_fixed_patches), dim=0)
 
         fixed_patches, moving_patches = shuffle_patches(fixed_patches, moving_patches)
-
-        print(fixed_patches.shape)
-        print(moving_patches.shape)
-
-        exit()
+        
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
     moving_training_patches = moving_patches[0:math.floor(moving_patches.shape[0] * (1 - validation_set_ratio)), :]
@@ -327,7 +324,7 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
 
     train_set = CreateDataset(fixed_patches, moving_patches)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
-                              num_workers=2, pin_memory=True, drop_last=True)
+                              num_workers=0, pin_memory=True, drop_last=True)
 
     training_loss = torch.zeros(len(train_loader), device=device)
 
@@ -375,7 +372,7 @@ def validate(fixed_patches, moving_patches, epoch, model, criterion, weight, dev
 
     validation_set = CreateDataset(fixed_patches, moving_patches)
     validation_loader = DataLoader(validation_set, batch_size=args.batch_size, shuffle=True,
-                                   num_workers=2, pin_memory=True)
+                                   num_workers=0, pin_memory=True, drop_last=False)
 
     validation_loss = torch.zeros(len(validation_loader), device=device)
 
