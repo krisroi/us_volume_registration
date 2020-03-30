@@ -17,19 +17,19 @@ from config_parser import UserConfigParser
 
 def parse():
     parser = argparse.ArgumentParser(description='Align volumes and plot the predicted alignment')
-    parser.add_argument('--theta-path',
+    parser.add_argument('-path',
                         type=str, required=True,
                         help='Full path to the file containing the global theta. That includes filename.')
-    parser.add_argument('--filter-type',
+    parser.add_argument('-ft',
                         choices={"Bilateral_lookup", "NLMF_lookup"}, default="Bilateral_lookup",
                         help='Specify the filter-type of the files to align')
-    parser.add_argument('--save-filename',
+    parser.add_argument('-save',
                         type=str, default=None,
                         help='Saves the algined volumes with the specified filename. PLEASE INCLUDE FILE EXTENSION')
-    parser.add_argument('--c-alpha',
+    parser.add_argument('-calph',
                         type=pu.float_type, default=1.0,
                         help='Specify opacity of the fixed volume. 1.0 = no opacity')
-    parser.add_argument('--g-alpha',
+    parser.add_argument('-galph',
                         type=pu.float_type, default=0.5,
                         help='Specify opacity of the moving volume. 1.0 = no opacity')
     args = parser.parse_args()
@@ -50,7 +50,7 @@ def main():
     
     voxelsize = 7.000003e-4
 
-    data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
+    data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
 
     vol_data = LoadHDF5File(data_files, fixed_image,
                             moving_image, fix_vol, mov_vol)
@@ -60,7 +60,7 @@ def main():
 
     # Reading global theta from file
     global_theta = []
-    with open(args.theta_path, 'r') as readTheta:
+    with open(args.path, 'r') as readTheta:
         for i, theta in enumerate(readTheta.read().split()):
             if theta != '1' and theta != '0':
                 if i == 3 or i == 7 or i == 11:
@@ -118,24 +118,24 @@ def plot_volumes(fixed_volume, moving_volume, warped_volume):
             ax[0, j].title.set_text('No alignment')
             ax[1, j].title.set_text('Predicted alignment')
 
-        ax[i, 0].imshow(fixed_x, origin='left', cmap='copper', alpha=args.c_alpha)
-        ax[0, 0].imshow(moving_x, origin='left', cmap='gray', alpha=args.g_alpha)
-        ax[1, 0].imshow(warped_x, origin='left', cmap='gray', alpha=args.g_alpha)
+        ax[i, 0].imshow(fixed_x, origin='left', cmap='copper', alpha=args.calph)
+        ax[0, 0].imshow(moving_x, origin='left', cmap='gray', alpha=args.galph)
+        ax[1, 0].imshow(warped_x, origin='left', cmap='gray', alpha=args.galph)
 
-        ax[i, 1].imshow(fixed_y, origin='left', cmap='copper', alpha=args.c_alpha)
-        ax[0, 1].imshow(moving_y, origin='left', cmap='gray', alpha=args.g_alpha)
-        ax[1, 1].imshow(warped_y, origin='left', cmap='gray', alpha=args.g_alpha)
+        ax[i, 1].imshow(fixed_y, origin='left', cmap='copper', alpha=args.calph)
+        ax[0, 1].imshow(moving_y, origin='left', cmap='gray', alpha=args.galph)
+        ax[1, 1].imshow(warped_y, origin='left', cmap='gray', alpha=args.galph)
 
-        ax[i, 2].imshow(fixed_z, origin='left', cmap='copper', alpha=args.c_alpha)
-        ax[0, 2].imshow(moving_z, origin='left', cmap='gray', alpha=args.g_alpha)
-        ax[1, 2].imshow(warped_z, origin='left', cmap='gray', alpha=args.g_alpha)
+        ax[i, 2].imshow(fixed_z, origin='left', cmap='copper', alpha=args.calph)
+        ax[0, 2].imshow(moving_z, origin='left', cmap='gray', alpha=args.galph)
+        ax[1, 2].imshow(warped_z, origin='left', cmap='gray', alpha=args.galph)
 
-    if args.save_filename is not None:
+    if args.save is not None:
         output_dir = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output', 'figures')
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        plt.savefig(os.path.join(output_dir, args.save_filename), dpi=200,
-                    format=args.save_filename.split('.')[1].strip(), bbox_inches='tight', pad_inches=0)
+        plt.savefig(os.path.join(output_dir, args.save), dpi=200,
+                    format=args.save.split('.')[1].strip(), bbox_inches='tight', pad_inches=0)
         print('Saved figure at ' + output_dir + ' with filename ' + args.save_filename)
 
     plt.show()
