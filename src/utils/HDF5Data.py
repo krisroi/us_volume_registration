@@ -15,7 +15,7 @@ class LoadHDF5File():
             mov_vol_no (string): specific volume to extract from the moving file
         Returns:
             A tensor that contains both a fixed- and a moving image.
-            The returned tensor is on the form [2, x-length, y-length, z-length].
+            The returned tensor is on the form [2, x-size, y-size, z-size].
             volume_data.data[0, :] returns the fixed image.
             volume_data.data[1, :] returns the moving image.
     """

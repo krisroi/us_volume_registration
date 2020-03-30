@@ -11,7 +11,7 @@ class NCC(nn.Module):
         moving_patch (tensor): moving patch with shape [B, C, D, H, W]
         predicted_theta (tensor): predicted theta from network output
         weight (float): epoch dependent weight factor
-        reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum')
+        reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum', 'none')
 
     Examples::
         >>> criterion = NCC(useRegularization)
@@ -37,7 +37,7 @@ class NCC(nn.Module):
 
 
 def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
-    """Compute and return zncc ([0, 1])
+    """Compute and return zero-ncc ([0, 1])
         Note:
             Reduction option 'None' should only be used when computing zero-ncc
             and not backpropagating loss. For backpropagation, the loss-matrix

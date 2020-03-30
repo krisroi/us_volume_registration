@@ -81,7 +81,6 @@ class _PLSNet(nn.Module):
         growth_rate (int) - how many filters to add each layer (`k` in paper)
         block_config (list of 4 ints) - how many layers in each DRDB block
         num_init_features (int) - the number of filters to learn in the first convolution layer
-    NOTE: This inplementation does not include using mixed precision training strategy, which is a big part of the idea of the network.
     """
 
     __constants__ = ['features']

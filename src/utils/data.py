@@ -11,19 +11,21 @@ from utils.HDF5Data import LoadHDF5File
 
 
 class CreateDataset(Dataset):
-    """Reads fixed- and moving patches and returns them as a Dataset object for
-        use with Pytorch's handy DataLoader.
+    """Reads fixed- and moving patches and their respective location and returns a Dataset 
+        object for use with Pytorch's handy DataLoader.
         Args:
             fixed_patches (Tensor): Tensor containing the fixed patches
             moving_patches (Tensor): Tensor containing the moving patches
+            patch_location (Tensor): Tensor containing patch locations. (NoneType for training)
         Example:
             dataset = CreateDataset(fixed_patches, moving_patches)
             dataloader = DataLoader(dataset, **kwargs)
     """
 
-    def __init__(self, fixed_patches, moving_patches):
+    def __init__(self, fixed_patches, moving_patches, patch_location=None):
         self.fixed_patches = fixed_patches
         self.moving_patches = moving_patches
+        self.patch_location = patch_location
 
         del fixed_patches, moving_patches
 
@@ -31,37 +33,17 @@ class CreateDataset(Dataset):
         return self.fixed_patches.shape[0]
 
     def __getitem__(self, idx):
-        return self.fixed_patches[idx, :], self.moving_patches[idx, :]
-
-
-class CreatePredictionSet(Dataset):
-    """Reads fixed- and moving patches and returns them as a Dataset object for
-        use with Pytorch's handy DataLoader.
-        Args:
-            fixed_patches (Tensor): Tensor containing the fixed patches
-            moving_patches (Tensor): Tensor containing the moving patches
-        Example:
-            dataset = CreateDataset(fixed_patches, moving_patches)
-            dataloader = DataLoader(dataset, **kwargs)
-    """
-
-    def __init__(self, fixed_patches, moving_patches, patch_location):
-        self.fixed_patches = fixed_patches
-        self.moving_patches = moving_patches
-        self.patch_location = patch_location
-
-    def __len__(self):
-        return self.fixed_patches.shape[0]
-
-    def __getitem__(self, idx):
-        return self.fixed_patches[idx, :], self.moving_patches[idx, :], self.patch_location[idx, :]
+        if self.patch_location is not None:
+            return self.fixed_patches[idx, :], self.moving_patches[idx, :], self.patch_location[idx, :]
+        else:
+            return self.fixed_patches[idx, :], self.moving_patches[idx, :]
 
 
 class GetDatasetInformation():
-    """Reads dataset information from a .txt file and returns the information as lists
+    """Reads dataset information from .csv file and returns the information as lists
         Args:
-            filepath (string): filepath to the .txt file
-            filename (string): filename of the .txt file
+            filename (string): filename of the .csv file containing data
+            filter_type (string): pre-processing filter type
     """
 
     def __init__(self, filename, filter_type):
@@ -101,6 +83,11 @@ class GetDatasetInformation():
 
 
 def shuffle_patches(fixed_patches, moving_patches):
+    """Takes two tensors of patches and returns shuffled tensors.
+        Args:
+            fixed_patches (Tensor): tensor containing fixed patches
+            moving_patches (Tensor): tensor containing moving patches
+    """
 
     shuffled_fixed_patches = torch.Tensor(fixed_patches.shape).cpu()
     shuffled_moving_patches = torch.Tensor(moving_patches.shape).cpu()
@@ -128,13 +115,13 @@ def shuffle_patches(fixed_patches, moving_patches):
     return shuffled_fixed_patches, shuffled_moving_patches
 
 
-def generate_trainPatches(data_information, data_files, filter_type,
-                          patch_size, stride, device, tot_num_sets):
+def generate_train_patches(data_information, data_files, filter_type,
+                           patch_size, stride, device, tot_num_sets):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
-            path_to_file (string): filepath to .txt file containing dataset information
-            info_filename (string): filename for the above file
-            path_to_h5files (string): path to .h5 files
+            data_information (string): filename of .csv file containing dataset information
+            data_files (string): folder containing .h5 files
+            filter_type (string): pre-processing filter type
             patch_size (int): desired patch size
             stride (int): desired stride between patches
             tot_num_sets (int): desired number of sets to use in the model
@@ -187,7 +174,7 @@ def generate_trainPatches(data_information, data_files, filter_type,
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
 
 
-def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, stride, device):
+def generate_prediction_patches(DATA_ROOT, data_files, filter_type, patch_size, stride, device):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
             DATA_ROOT (string): root folder to all data-files
@@ -199,6 +186,8 @@ def generate_predictionPatches(DATA_ROOT, data_files, filter_type, patch_size, s
             fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
             moving patches: all moving patches in the dataset ([num_patches, 1, **patch_size])
             loc: location of each patch
+        Note:
+            Prediction patches are created and returned on the GPU if GPU is available.
     """
 
     fix_set = 'J65BP1R0_ecg_{}.h5'.format(filter_type)

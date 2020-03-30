@@ -6,7 +6,7 @@ class USARNet(nn.Module):
     r"""Proposed network class for affine ultrasound to ultrasound image registration.
     Args:
         encoder (_Encoder class): configured encoder
-        affineRegression (_AffineRegression class): configured affine regressor.
+        affineRegression (_AffineRegression class): configured affine regressor
     """
 
     def __init__(self, encoder, affineRegression):
@@ -27,9 +27,9 @@ class USARNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, fixed, moving):
-        fixed_loc = self.encoder(fixed)
-        moving_loc = self.encoder(moving)
+    def forward(self, fixed_batch, moving_batch):
+        fixed_loc = self.encoder(fixed_batch)
+        moving_loc = self.encoder(moving_batch)
         fixed_loc = self.flatten(fixed_loc)
         moving_loc = self.flatten(moving_loc)
         concated = torch.cat((fixed_loc, moving_loc), 1)

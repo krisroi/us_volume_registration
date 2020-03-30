@@ -8,11 +8,9 @@ from utils.affine_transform import affine_transform
 
 
 class Transform(ABC):
-    """Abstract class for all TorchIO transforms.
-    All classes used to transform a sample from an
-    :py:class:`~torchio.ImagesDataset` should subclass it.
-    All subclasses should overwrite
-    :py:meth:`torchio.tranforms.Transform.apply_transform`,
+    """Abstract class for all transforms. Based on TorchIO <https://github.com/fepegar/torchio>.
+    All classes used to transform a sample should subclass it.
+    All subclasses should overwrite Transform.apply_transform`,
     which takes a sample, applies some transformation and returns the result.
     """
 
@@ -27,6 +25,15 @@ class Transform(ABC):
 
 
 class RandomAffine(Transform):
+    """Transform class that applies a random affine transformation to a sample.
+        Args:
+            degrees (tuple, int): range of degrees to allow the transformation to use
+            translation (tuple, int): range of translation-values to allow the transformation to use
+            voxelsize (float)
+        Note:
+            translation values are in voxels. translation=(1, 3) yields a range of 1 to 3 voxels for translation.
+            To get translation in pixels, the values are multiplied with the voxelsize.
+    """
     def __init__(self, degrees, translation, voxelsize):
         super().__init__()
 
@@ -90,10 +97,3 @@ class RandomAffine(Transform):
         transformed_patch = affine_transform(patch, theta)
         return transformed_patch
 
-
-if __name__ == '__main__':
-
-    sample = torch.randn([4, 1, 64, 64, 64])
-
-    transform = RandomAffine(degrees=(5), translation=(1, 5))
-    transformed = transform(sample[1, :].unsqueeze(0))

@@ -24,13 +24,13 @@ class _FullyConnectedBlock(nn.Module):
 
 class _AffineRegression(nn.Module):
     r"""Affine regression model class. Takes a flattened array and regresses an affine
-    3D transformation matrix.
+        3D transformation matrix.
     Args:
         num_input_parameters (int): number of input parameters from flattened array
         num_init_parameters (int): number of parameters to produce in the first FC layer
         affine_config (tuple of ints): how many output parameters from each FC layer. Is used to
             define number of FC layers.
-        drop_rate (float, optional): drop rate of each fully connected layer
+        drop_rate (float, optional): drop rate of each fully connected layer. Default: 0
     """
 
     __constants__ = ['params']
