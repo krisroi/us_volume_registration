@@ -50,6 +50,7 @@ class RandomAffine(Transform):
             rotation_params, translation_params = self.get_params(self.degrees, self.translation)
             transformed_patches[patch_idx] = self.apply_affine_transform(patches[patch_idx].unsqueeze(0),
                                                                          rotation_params, translation_params)
+        del patches
         return transformed_patches
 
     def parse_range(self, nums_range, name):
