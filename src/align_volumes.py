@@ -43,8 +43,8 @@ def main():
     args = parse()
     user_config = UserConfigParser()
 
-    fixed_image = 'J65BP1R0_ecg_{}.h5'.format(args.filter_type)
-    moving_image = 'J65BP1R2_ecg_{}.h5'.format(args.filter_type)
+    fixed_image = 'J65BP1R0_ecg_{}.h5'.format(args.ft)
+    moving_image = 'J65BP1R2_ecg_{}.h5'.format(args.ft)
     fix_vol = '01'
     mov_vol = '12'
     
