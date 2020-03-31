@@ -37,7 +37,7 @@ from losses.ncc_loss import NCC
 from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
-from utils.data import CreateDataset, GetDatasetInformation, generate_trainPatches, shuffle_patches
+from utils.data import CreateDataset, GetDatasetInformation, generate_train_patches, shuffle_patches
 from utils.Transform import RandomAffine
 
 
@@ -212,11 +212,13 @@ def main():
         # Pick 10% of fixed patches and perform augmentation on them
         fixed_set = fixed_patches[0:math.ceil((10 * fixed_patches.shape[0]) / 100), :]
 
-        transform = RandomAffine(degrees=(0), translation=(0, 3), voxelsize=voxelsize)
+        transform = RandomAffine(degrees=(0), translation=(0), voxelsize=voxelsize)
         transformed_fixed_patches = transform(fixed_set)
 
         fixed_patches = torch.cat((fixed_patches, fixed_set), dim=0)
         moving_patches = torch.cat((moving_patches, transformed_fixed_patches), dim=0)
+        
+        del fixed_set, transformed_fixed_patches
 
         fixed_patches, moving_patches = shuffle_patches(fixed_patches, moving_patches)
         
