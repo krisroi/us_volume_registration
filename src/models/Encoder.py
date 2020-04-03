@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import itertools
+import math
 
 
 class _Conv(nn.Module):
@@ -100,27 +101,61 @@ class _Encoder(nn.Module):
             DRD_BLOCK = _DilatedResidualDenseBlock(num_layers=num_layers,
                                                    num_input_features=num_features,
                                                    growth_rate=growth_rate)
-            self.drd_module.add_module('DRD_BLOCK%d' % (i + 1), DRD_BLOCK)
+            self.drd_module.add_module('DRD_BLOCK%d_1' % ((i + 1)), DRD_BLOCK)
+            if i > 0:
+                self.drd_module.add_module('DRD_BLOCK%d_2' % ((i + 1)), DRD_BLOCK)
 
             if i != len(encoder_config) - 1:
                 STRIDED_CONV_LAYER = _StridedConv(num_input_features=num_features,
                                                   num_output_features=num_init_features * (2**(i + 1)))
                 self.strided_conv_module.add_module('DS_LAYER%d' % (i + 1), STRIDED_CONV_LAYER)
             num_features = num_init_features * (2**(i + 1)) + 1
+            
+        self.__get_keys()
+            
+    def __get_keys(self):
+        self.drd_keynames = []
+        self.strided_keynames = []
+            
+        for key in self.drd_module.keys():
+            self.drd_keynames.append(key)
+            
+        for key in self.strided_conv_module.keys():
+            self.strided_keynames.append(key)
+        self.strided_keynames.append('') # Append empty entry to make it correct length    
+            
 
     def forward(self, x):
+        
+        # Save original input
         origInput = x
+        
+        # Execute first strided convolution
         out = self.relu(self.norm(self.conv1(self.conv0(x))))
-
-        for i, ((DRD_NAME, DRD_BLOCK), (STRIDED_CONV_NAME, STRIDED_CONV_LAYER)) in \
-                enumerate(itertools.zip_longest(self.drd_module.items(), self.strided_conv_module.items(), fillvalue=(0, 'placeholder'))):
-
+        
+        # Counter for finding correct DRD-block
+        drd_key_num = 0
+                
+        for i, key in enumerate(self.strided_keynames):
+            
+            # Downsampling original data
             downsampled_data = F.interpolate(input=origInput,
                                              scale_factor=(1 / (2 ** (i + 1))),
                                              mode='trilinear')
+            # Input reinforcemet
             out = torch.cat((out, downsampled_data), 1)
-            out = DRD_BLOCK(out)
+            
+            # Apply DRD-block
+            out = self.drd_module[self.drd_keynames[drd_key_num]](out)
+            if i > 0:
+                out = self.drd_module[self.drd_keynames[drd_key_num + 1]](out)   
+                drd_key_num += 1 # Update counter
+            
+            # Apply strided conv-layer
             if i != len(self.encoder_config) - 1:
-                out = STRIDED_CONV_LAYER(out)
-        out = F.relu(out, inplace=True)
+                out = self.strided_conv_module[key](out)
+            
+            drd_key_num += 1
+            
+        out = F.relu(out, inplace=True)   
         return out
