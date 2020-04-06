@@ -43,3 +43,18 @@ def range_limited_int_type_TOT_NUM_SETS(arg):
     if i < 1 or i > 25:
         raise argparse.ArgumentTypeError('Total number of sets must be between {} and {}'.format(1, 25))
     return i
+
+
+def get_frame(arg):
+    """Function for returning correct info-file for given frame"""
+    try:
+        frame = str(arg)
+        if arg.lower() in ('es', 'endsystole', 'end-systole'):
+            frame = 'end_systole.csv'
+        elif arg.lower() in ('ed', 'enddiastole', 'end-diastole'):
+            frame = 'end_diastole.csv'
+        else:
+            raise argparse.ArgumentTypeError('Specify frame with ES or ED')
+    except ValueError:
+        raise argparse.ArgumentTypeError('Must be a string')
+    return frame
