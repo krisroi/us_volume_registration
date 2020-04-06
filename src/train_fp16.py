@@ -90,6 +90,9 @@ def parse():
     parser.add_argument('-m', '--model-name',
                         type=str, required=True,
                         help='Name the model (without file extension).')
+    parser.add_argument('-frame',
+                        type=pu.get_frame, required=True,
+                        help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
     parser.add_argument('-lr',
                         type=pu.float_type, default=1e-2,
                         help='Learning rate for optimizer')
@@ -108,9 +111,6 @@ def parse():
     parser.add_argument('-N', '--num-sets',
                         type=pu.range_limited_int_type_TOT_NUM_SETS, default=25,
                         help='Total number of sets to use for training')
-    parser.add_argument('-dr', '--drop-rate',
-                        type=pu.float_type, default=0,
-                        help='Drop rate to use in affine regression')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='0',
                         help='Comma delimited (no spaces) list containing ' +
@@ -118,9 +118,6 @@ def parse():
     parser.add_argument('-ur',
                         type=pu.str2bool, default=True,
                         help='Use regularization with the loss function')
-    parser.add_argument('-rh', '--register-hook',
-                        type=pu.str2bool, default=False,
-                        help='Register hook on layers to print feature maps')
     parser.add_argument('-ft', '--filter-type',
                         type=str, default='Bilateral_lookup',
                         choices={"Bilateral_lookup", "NLMF_lookup"},
@@ -129,9 +126,15 @@ def parse():
                         type=str, default='full',
                         choices={'full', 'amp'},
                         help='Choose precision to do training. (full - float32 (default), amp - automatic mixed')
+    parser.add_argument('-dr', '--drop-rate',
+                        type=pu.float_type, default=0,
+                        help='Drop rate to use in affine regression')
     parser.add_argument('-da', type=pu.str2bool,
                         default=False,
                         help='Perform data augmentation')
+    parser.add_argument('-rh', '--register-hook',
+                        type=pu.str2bool, default=False,
+                        help='Register hook on layers to print feature maps')
     args = parser.parse_args()
 
     return args
@@ -182,6 +185,7 @@ def main():
     print(f"Stride: {args.stride}")
     print(f"Using regularization: {args.ur}")
     print(f"Filter type: {args.filter_type}")
+    print(f"Frame: End-systole") if args.frame == 'end_systole.csv' else print(f"Frame: End-diastole")
     print(f"Training precision: float32") if apexImportError else print(f"Training precision: {args.precision}")
     print(f"Perform data augmentation: {args.da}")
     print('\n')
@@ -190,7 +194,7 @@ def main():
     model_name = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/models/', '{}.pt'.format(args.model_name))
     lossfile = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/txtfiles/', 'loss_{}.csv'.format(args.model_name))
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
-    data_information = os.path.join(user_config.DATA_ROOT, 'dataset_information.csv')
+    data_information = os.path.join(user_config.DATA_ROOT, args.frame)
 
     lossStorage = FileHandler(lr=args.lr, bs=args.batch_size, ps=args.patch_size,
                               st=args.stride, ns=args.num_sets, device=device, lossfile=lossfile)
@@ -217,11 +221,10 @@ def main():
 
         fixed_patches = torch.cat((fixed_patches, fixed_set), dim=0)
         moving_patches = torch.cat((moving_patches, transformed_fixed_patches), dim=0)
-        
+
         del fixed_set, transformed_fixed_patches
 
         fixed_patches, moving_patches = shuffle_patches(fixed_patches, moving_patches)
-        
 
     fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
     moving_training_patches = moving_patches[0:math.floor(moving_patches.shape[0] * (1 - validation_set_ratio)), :]

@@ -89,6 +89,9 @@ def parse():
                         choices=model_names, required=True,
                         type=str,
                         help='Specify wanted model name for prediction.')
+    parser.add_argument('-frame',
+                        type=pu.get_frame, required=True,
+                        help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='1',
                         help='Number of desired CUDA core to run prediction on')
@@ -143,6 +146,7 @@ def main():
     print(f"Patch size: {user_config.patch_size}")
     print(f"Stride: {user_config.stride}")
     print(f"Filter type: {args.filter_type}")
+    print(f"Frame: End-systole") if args.frame == 'end_systole.csv' else print(f"Frame: End-diastole")
     print(f"Prediction precision: float32") if apexImportError else print(f"Prediction precision: {args.precision}")
     print('\n')
 
@@ -169,7 +173,7 @@ def main():
     print('Loading weights ...')
     loadModel = torch.load(model_name, map_location=device)
     model.load_state_dict(loadModel['model_state_dict'])
-    
+
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
     model.to(device)
@@ -184,6 +188,7 @@ def main():
 
     fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
                                                                      data_files=data_files,
+                                                                     frame=args.frame,
                                                                      filter_type=args.filter_type,
                                                                      patch_size=user_config.patch_size,
                                                                      stride=user_config.stride,
@@ -194,8 +199,8 @@ def main():
     print('\n')
 
     prediction_set = CreateDataset(fixed_patches, moving_patches, loc)
-    prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size, 
-                                   shuffle=False, num_workers=0, pin_memory=False, drop_last=False)
+    prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size,
+                                   shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
 
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     predicted_theta_tmp = torch.zeros([1, user_config.batch_size, 12]).type(dtype).to(device)
@@ -213,6 +218,8 @@ def main():
         model.eval()
 
         for batch_idx, (fixed_batch, moving_batch, loc) in enumerate(prediction_loader):
+
+            fixed_batch, moving_batch = fixed_batch.to(device), moving_batch.to(device)
 
             model_rt = datetime.now()
             predicted_theta = model(fixed_batch, moving_batch)
@@ -244,25 +251,25 @@ def main():
                                     )
 
             sampleNumber += user_config.batch_size
-            
+
             preWarpNcc = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
             postWarpNcc = normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
-            
+
             print_patchloss(preWarpNcc, postWarpNcc)
-            
+
 
 def print_patchloss(preWarpNcc, postWarpNcc):
-    
-    print('*'*100)
-    print('Patch num in batch' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' + 
+
+    print('*' * 100)
+    print('Patch num in batch' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' +
           'Improvement' + ' | ' + 'Percentwice imp.')
-    
+
     for idx in range(preWarpNcc.shape[0]):
-        pre = preWarpNcc[idx,:].item()
-        post = postWarpNcc[idx,:].item()
+        pre = preWarpNcc[idx, :].item()
+        post = postWarpNcc[idx, :].item()
         diff = post - pre
-        percent = 100 - ((pre/post)*100)
-        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(idx, round(pre, 4), round(post, 4), 
+        percent = 100 - ((pre / post) * 100)
+        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(idx, round(pre, 4), round(post, 4),
                                                        round(diff, 4), round(percent, 2)))
 
 

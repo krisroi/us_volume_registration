@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
+from utils.data import GetDatasetInformation
 from losses.ncc_loss import normalized_cross_correlation
 from config_parser import UserConfigParser
 
@@ -20,6 +21,9 @@ def parse():
     parser.add_argument('-path',
                         type=str, required=True,
                         help='Full path to the file containing the global theta. That includes filename.')
+    parser.add_argument('-frame',
+                        type=pu.get_frame, required=True,
+                        help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
     parser.add_argument('-ft',
                         choices={"Bilateral_lookup", "NLMF_lookup"}, default="Bilateral_lookup",
                         help='Specify the filter-type of the files to align')
@@ -43,17 +47,19 @@ def main():
     args = parse()
     user_config = UserConfigParser()
 
-    fixed_image = 'J65BP1R0_ecg_{}.h5'.format(args.ft)
-    moving_image = 'J65BP1R2_ecg_{}.h5'.format(args.ft)
-    fix_vol = '01'
-    mov_vol = '12'
-    
+    dataset = GetDatasetInformation(os.path.join(user_config.DATA_ROOT, args.frame), args.ft, mode='prediction')
+
+    fixed_image = dataset.fix_files
+    moving_image = dataset.mov_files
+    fix_vol = dataset.fix_vols
+    mov_vol = dataset.mov_vols
+
     voxelsize = 7.000003e-4
 
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
 
-    vol_data = LoadHDF5File(data_files, fixed_image,
-                            moving_image, fix_vol, mov_vol)
+    vol_data = LoadHDF5File(data_files, fixed_image[0],
+                            moving_image[0], fix_vol[0], mov_vol[0])
 
     fixed_volume = vol_data.data[0, :].unsqueeze(0).unsqueeze(1)
     moving_volume = vol_data.data[1, :].unsqueeze(0).unsqueeze(1)
@@ -64,15 +70,14 @@ def main():
         for i, theta in enumerate(readTheta.read().split()):
             if theta != '1' and theta != '0':
                 if i == 3 or i == 7 or i == 11:
-                    global_theta.append(float(theta)*voxelsize*10)
+                    global_theta.append(float(theta) * voxelsize * 10)
                 else:
                     global_theta.append(float(theta))
-
 
     global_theta = torch.Tensor(global_theta)
     global_theta = global_theta.view(-1, 3, 4)  # Get theta on correct form for affine transform
     print(global_theta)
-        
+
     warped_volume = affine_transform(moving_volume, global_theta)
 
     pre_loss = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
