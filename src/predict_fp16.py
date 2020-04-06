@@ -5,6 +5,7 @@ import argparse
 import platform
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
 # Apex handles automatic mixed precision training, https://github.com/nvidia/apex
@@ -31,7 +32,7 @@ from losses.ncc_loss import NCC, normalized_cross_correlation
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
-from utils.data import CreatePredictionSet, generate_predictionPatches
+from utils.data import CreateDataset, generate_prediction_patches
 
 
 class FileHandler():
@@ -99,7 +100,7 @@ def parse():
                         choices={"Bilateral_lookup", "NLMF_lookup"},
                         help='Filter type for prediction')
     parser.add_argument('-pr', '--precision',
-                        type=str, default='amp',
+                        type=str, default='full',
                         choices={'amp', 'full'},
                         help='Choose precision to do training. (amp - automatic mixed, full - float32')
     parser.add_argument('-sd', '--save-data',
@@ -162,12 +163,16 @@ def main():
     model_config = network_config()
     encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
-    model = USARNet(encoder, affineRegression).to(device)
+    model = USARNet(encoder, affineRegression)
 
     # Load model with existing weights
     print('Loading weights ...')
     loadModel = torch.load(model_name, map_location=device)
     model.load_state_dict(loadModel['model_state_dict'])
+    
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model)
+    model.to(device)
 
     # Decide on FP32 prediction or mixed precision
     if args.precision == 'amp' and not apexImportError:

@@ -116,7 +116,7 @@ def parse():
                         help='Comma delimited (no spaces) list containing ' +
                         'all available CUDA devices')
     parser.add_argument('-ur',
-                        type=pu.str2bool, default=False,
+                        type=pu.str2bool, default=True,
                         help='Use regularization with the loss function')
     parser.add_argument('-rh', '--register-hook',
                         type=pu.str2bool, default=False,
@@ -436,7 +436,6 @@ def get_hook(model):
     model.encoder.drd_module.DRD_BLOCK2.conv.register_forward_hook(printFeatureMaps)
     model.encoder.drd_module.DRD_BLOCK3.conv.register_forward_hook(printFeatureMaps)
     model.encoder.drd_module.DRD_BLOCK4.conv.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK5.conv.register_forward_hook(printFeatureMaps)
 
 
 if __name__ == '__main__':
