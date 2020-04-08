@@ -1,9 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-import itertools
-import math
+import torch.utils.checkpoint as cp
 
 
 class _Conv(nn.Module):
@@ -40,7 +38,7 @@ class _DilatedResidualDenseBlock(nn.ModuleDict):
 
     __constants__ = ['intermediate']
 
-    def __init__(self, num_layers, num_input_features, growth_rate):
+    def __init__(self, num_layers, num_input_features, growth_rate, memory_efficient):
         super(_DilatedResidualDenseBlock, self).__init__()
 
         self.intermediate = nn.ModuleDict()
@@ -56,11 +54,27 @@ class _DilatedResidualDenseBlock(nn.ModuleDict):
 
         self.add_module('conv', nn.Conv3d(num_input_features + num_layers * growth_rate, num_input_features,
                                           kernel_size=1, stride=1, bias=False))
-
+        
+        self.memory_efficient = memory_efficient
+        
+        
+    def call_checkpoint(self, module):
+        """Custom checkpointing function. 
+           If memory_efficient, trade compute for memory.
+        """
+        def closure(*inputs):
+            inputs = module(inputs[0])
+            return inputs
+        return closure
+    
+    
     def forward(self, init_features):
         features = [init_features]
         for name, layer in self.intermediate.items():
-            new_features = layer(features)
+            if self.memory_efficient:
+                new_features = cp.checkpoint(self.call_checkpoint(layer), features)
+            else:
+                new_features = layer(features)
             features.append(new_features)
         concat = torch.cat(features, 1)
         out = self.conv(concat)
@@ -80,7 +94,7 @@ class _Encoder(nn.Module):
 
     __constants__ = ['features']
 
-    def __init__(self, encoder_config, growth_rate, num_init_features):
+    def __init__(self, encoder_config, growth_rate, num_init_features, memory_efficient=False):
         super(_Encoder, self).__init__()
 
         self.encoder_config = encoder_config
@@ -100,10 +114,9 @@ class _Encoder(nn.Module):
         for i, num_layers in enumerate(encoder_config):
             DRD_BLOCK = _DilatedResidualDenseBlock(num_layers=num_layers,
                                                    num_input_features=num_features,
-                                                   growth_rate=growth_rate)
-            self.drd_module.add_module('DRD_BLOCK%d_1' % ((i + 1)), DRD_BLOCK)
-            if i > 0:
-                self.drd_module.add_module('DRD_BLOCK%d_2' % ((i + 1)), DRD_BLOCK)
+                                                   growth_rate=growth_rate,
+                                                   memory_efficient=memory_efficient)
+            self.drd_module.add_module('DRD_BLOCK%d' % ((i + 1)), DRD_BLOCK)
 
             if i != len(encoder_config) - 1:
                 STRIDED_CONV_LAYER = _StridedConv(num_input_features=num_features,
@@ -112,6 +125,7 @@ class _Encoder(nn.Module):
             num_features = num_init_features * (2**(i + 1)) + 1
             
         self.__get_keys()
+        
             
     def __get_keys(self):
         self.drd_keynames = []
@@ -122,7 +136,7 @@ class _Encoder(nn.Module):
             
         for key in self.strided_conv_module.keys():
             self.strided_keynames.append(key)
-        self.strided_keynames.append('') # Append empty entry to make it correct length    
+        self.strided_keynames.append('') # Append empty entry to make it correct length
             
 
     def forward(self, x):
@@ -130,7 +144,7 @@ class _Encoder(nn.Module):
         # Save original input
         origInput = x
         
-        # Execute first strided convolution
+        # Initial strided conv layer
         out = self.relu(self.norm(self.conv1(self.conv0(x))))
         
         # Counter for finding correct DRD-block
@@ -147,9 +161,6 @@ class _Encoder(nn.Module):
             
             # Apply DRD-block
             out = self.drd_module[self.drd_keynames[drd_key_num]](out)
-            if i > 0:
-                out = self.drd_module[self.drd_keynames[drd_key_num + 1]](out)   
-                drd_key_num += 1 # Update counter
             
             # Apply strided conv-layer
             if i != len(self.encoder_config) - 1:
@@ -157,5 +168,5 @@ class _Encoder(nn.Module):
             
             drd_key_num += 1
             
-        out = F.relu(out, inplace=True)   
+        out = self.relu(out)
         return out
