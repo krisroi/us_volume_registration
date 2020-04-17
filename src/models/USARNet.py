@@ -36,4 +36,5 @@ class USARNet(nn.Module):
 
         theta = self.affineRegression(concated)
         theta = theta.view(-1, 3, 4)
+        
         return theta

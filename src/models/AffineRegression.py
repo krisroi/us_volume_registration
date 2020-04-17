@@ -33,8 +33,6 @@ class _AffineRegression(nn.Module):
         drop_rate (float, optional): drop rate of each fully connected layer. Default: 0
     """
 
-    __constants__ = ['params']
-
     def __init__(self, num_input_parameters, num_init_parameters,
                  affine_config, drop_rate=0):
         super(_AffineRegression, self).__init__()

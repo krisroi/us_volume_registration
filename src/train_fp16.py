@@ -92,9 +92,9 @@ def parse():
                         help='Name the model (without file extension).')
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
-                        help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
+                        help='Choose end-diastolic (ED) frame or end-systolic (ES) frame')
     parser.add_argument('-lr',
-                        type=pu.float_type, default=1e-2,
+                        type=pu.float_type, default=1e-3,
                         help='Learning rate for optimizer')
     parser.add_argument('-e', '--epochs',
                         type=pu.int_type, default=1,
@@ -118,6 +118,9 @@ def parse():
     parser.add_argument('-ur',
                         type=pu.str2bool, default=True,
                         help='Use regularization with the loss function')
+    parser.add_argument('-me', '--memory_efficient',
+                        type=pu.str2bool, default=False,
+                        help='Use memory efficient implementation (increased training time)')
     parser.add_argument('-ft', '--filter-type',
                         type=str, default='Bilateral_lookup',
                         choices={"Bilateral_lookup", "NLMF_lookup"},
@@ -148,12 +151,16 @@ def main():
 
     # Enhance performance
     cudnn.benchmark = True
-
+    
+    # Disable performance enhancement for reproducibility
+    #torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = False
+    
     # Manual seed for reproducibilty
     torch.manual_seed(0)
     np.random.seed(0)
 
-    # Choose GPU device (0 or 1 available)
+    # Choose GPU device (0 or 1 available, -1 masks both GPUs and runs the program on CPU)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
@@ -184,6 +191,7 @@ def main():
     print(f"Patch size: {args.patch_size}")
     print(f"Stride: {args.stride}")
     print(f"Using regularization: {args.ur}")
+    print(f"Using memory efficient: {args.memory_efficient}")
     print(f"Filter type: {args.filter_type}")
     print(f"Frame: End-systole") if args.frame == 'end_systole.csv' else print(f"Frame: End-diastole")
     print(f"Training precision: float32") if apexImportError else print(f"Training precision: {args.precision}")
@@ -402,7 +410,8 @@ def validate(fixed_patches, moving_patches, epoch, model, criterion, weight, dev
 def network_config():
     ENCODER_CONFIG = {'encoder_config': user_config.encoder_config,
                       'growth_rate': user_config.growth_rate,
-                      'num_init_features': user_config.num_init_features}
+                      'num_init_features': user_config.num_init_features,
+                      'memory_efficient': args.memory_efficient}
 
     # Calculating spatial resolution of the output of the encoder
     spatial_resolution = (args.patch_size // ((2**len(user_config.encoder_config))))**3

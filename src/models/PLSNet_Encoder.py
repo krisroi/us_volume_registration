@@ -75,7 +75,7 @@ class _DilatedResidualDenseBlock(nn.ModuleDict):
 
 
 class _PLSNet(nn.Module):
-    r"""PLS-Net model class, based on
+    r"""PLS-Net model class (only encoder), based on
     `"Efficient 3D Fully Convolutional Networks for Pulmonary Lobe Segmentation in CT Images"               <https://arxiv.org/pdf/1909.07474v1.pdf>`
     Args:
         growth_rate (int) - how many filters to add each layer (`k` in paper)

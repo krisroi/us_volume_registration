@@ -167,16 +167,12 @@ def main():
     model_config = network_config()
     encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
-    model = USARNet(encoder, affineRegression)
+    model = USARNet(encoder, affineRegression).to(device)
 
     # Load model with existing weights
     print('Loading weights ...')
     loadModel = torch.load(model_name, map_location=device)
     model.load_state_dict(loadModel['model_state_dict'])
-
-    if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(model)
-    model.to(device)
 
     # Decide on FP32 prediction or mixed precision
     if args.precision == 'amp' and not apexImportError:
@@ -184,6 +180,8 @@ def main():
     elif args.precision == 'amp' and apexImportError:
         print('Error: Apex not found, cannot go ahead with mixed precision prediction. Continuing with full precision.')
 
+    #scripted_model = torch.jit.script(model)
+        
     criterion = NCC(useRegularization=False, device=device)
 
     fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
@@ -193,14 +191,14 @@ def main():
                                                                      patch_size=user_config.patch_size,
                                                                      stride=user_config.stride,
                                                                      device=device)
-
+    
     print('\n')
     print('Number of prediction samples: {}'.format(fixed_patches.shape[0]))
     print('\n')
 
     prediction_set = CreateDataset(fixed_patches, moving_patches, loc)
     prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size,
-                                   shuffle=False, num_workers=4, pin_memory=True, drop_last=False)
+                                   shuffle=False, num_workers=0, pin_memory=False, drop_last=False)
 
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
     predicted_theta_tmp = torch.zeros([1, user_config.batch_size, 12]).type(dtype).to(device)
@@ -219,8 +217,10 @@ def main():
 
         for batch_idx, (fixed_batch, moving_batch, loc) in enumerate(prediction_loader):
 
-            fixed_batch, moving_batch = fixed_batch.to(device), moving_batch.to(device)
-
+            model_rt = datetime.now()
+            predicted_theta = model(fixed_batch, moving_batch)
+            print('Model runtime: ', datetime.now() - model_rt)
+            
             model_rt = datetime.now()
             predicted_theta = model(fixed_batch, moving_batch)
             print('Model runtime: ', datetime.now() - model_rt)

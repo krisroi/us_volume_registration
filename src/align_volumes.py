@@ -18,12 +18,12 @@ from config_parser import UserConfigParser
 
 def parse():
     parser = argparse.ArgumentParser(description='Align volumes and plot the predicted alignment')
-    parser.add_argument('-path',
+    parser.add_argument('-glob',
                         type=str, required=True,
-                        help='Full path to the file containing the global theta. That includes filename.')
+                        help='Filename of the file containing global theta.')
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
-                        help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
+                        help='Choose end-diastolic (ED) frame or end-systolic (ES) frame')
     parser.add_argument('-ft',
                         choices={"Bilateral_lookup", "NLMF_lookup"}, default="Bilateral_lookup",
                         help='Specify the filter-type of the files to align')
@@ -57,6 +57,7 @@ def main():
     voxelsize = 7.000003e-4
 
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
+    theta_proc_path = os.path.join(user_config.PROJECT_ROOT, user_config.PROCRUSTES, 'results', args.glob)
 
     vol_data = LoadHDF5File(data_files, fixed_image[0],
                             moving_image[0], fix_vol[0], mov_vol[0])
@@ -66,7 +67,7 @@ def main():
 
     # Reading global theta from file
     global_theta = []
-    with open(args.path, 'r') as readTheta:
+    with open(theta_proc_path, 'r') as readTheta:
         for i, theta in enumerate(readTheta.read().split()):
             if theta != '1' and theta != '0':
                 if i == 3 or i == 7 or i == 11:

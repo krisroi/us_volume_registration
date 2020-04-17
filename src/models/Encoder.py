@@ -173,7 +173,8 @@ class _Encoder(nn.Module):
             out = torch.cat((out, downsampled_data), 1)
             
             # Apply DRD-block
-            if self.memory_efficient: # and not torch.jit.is_scripting():
+            if self.memory_efficient and out.requires_grad: 
+                # if not torch.jit.is_scripting():
                 out = cp.checkpoint(self.drd_module[self.drd_keynames[drd_key_num]], out)
             else:
                 out = self.drd_module[self.drd_keynames[drd_key_num]](out)

@@ -115,7 +115,7 @@ def printFeatureMaps(self, input, output):
     print('')
     #print('input size:', input[0].size())
     print('output size:', output.data.size())
-    plotFeatureMaps(output, className)
+    #plotFeatureMaps(output, className)
 
 
 def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROOT, PROJ_NAME, savefig=False, copperAlpha=1, grayAlpha=0.6):

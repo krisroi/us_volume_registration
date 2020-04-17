@@ -82,6 +82,9 @@ class UserConfigParser:
         if self.config.has_option('Path', 'procrustes'):
             if not os.path.exists(os.path.join(self.PROJECT_ROOT, self.config['Path']['procrustes'])):
                 os.makedirs(os.path.join(self.PROJECT_ROOT, self.config['Path']['procrustes']))
+            self.PROCRUSTES = self.config['Path']['procrustes'].split('#')[0].strip()
+        else:
+            raise AttributeError('Missing parameter [Path][procrustes]')
 
 
 def remove():

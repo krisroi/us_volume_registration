@@ -195,8 +195,8 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
             Prediction patches are created and returned on the GPU if GPU is available.
     """
 
-    fixed_patches = torch.tensor([]).cpu()
-    moving_patches = torch.tensor([]).cpu()
+    fixed_patches = torch.tensor([]).to(device)
+    moving_patches = torch.tensor([]).to(device)
 
     dataset = GetDatasetInformation(os.path.join(DATA_ROOT, frame), filter_type, mode='prediction')
 
@@ -218,7 +218,6 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
         vol_data.to(device)
 
         patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device)
-        patched_vol_data = patched_vol_data.cpu()
 
         fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
         moving_patches = torch.cat((moving_patches, patched_vol_data[:, 1, :]))
