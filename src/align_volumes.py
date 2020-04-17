@@ -12,7 +12,7 @@ import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
 from utils.data import GetDatasetInformation
-from losses.ncc_loss import normalized_cross_correlation
+from losses.ncc_loss import normalized_cross_correlation, sector_limited_zero_ncc
 from config_parser import UserConfigParser
 
 
@@ -82,7 +82,7 @@ def main():
     warped_volume = affine_transform(moving_volume, global_theta)
 
     pre_loss = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
-    post_loss = normalized_cross_correlation(fixed_volume, warped_volume, reduction=None)
+    post_loss = sector_limited_zero_ncc(fixed_volume, warped_volume)
 
     print('ncc similarity pre warping:  ', pre_loss)
     print('ncc similarity post warping: ', post_loss)
