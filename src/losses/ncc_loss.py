@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class NCC(nn.Module):
-    r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together 
+    r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together
         with a regularization function to compute the loss.
 
     Args:
@@ -88,3 +88,26 @@ def regularization_loss(predicted_theta, weight, device):
 def determinant_loss(predicted_theta):
     IDT, A, _ = extract(predicted_theta)
     return (-1 + torch.det(A + IDT))**2
+
+
+def sector_limited_zero_ncc(fixed_volume, warped_volume):
+    """Compute and return zero-ncc ([0, 1]), only where the ultrasound sectors overlap.
+    """
+    fix_mask = torch.where(fixed_volume != 0, torch.ones(fixed_volume.shape), torch.zeros(fixed_volume.shape))
+    warp_mask = torch.where(warped_volume != 0, torch.ones(warped_volume.shape), torch.zeros(warped_volume.shape))
+
+    mask = torch.where(fix_mask == warp_mask, torch.ones(fixed_volume.shape), torch.zeros(fixed_volume.shape))
+
+    fixed = fixed_volume[:] * mask
+    warped = warped_volume[:] * mask
+
+    fixed_variance = torch.sqrt(torch.sum(torch.pow(fixed, 2), (2, 3, 4)))
+    warped_variance = torch.sqrt(torch.sum(torch.pow(warped, 2), (2, 3, 4)))
+
+    num = torch.sum(torch.mul(fixed, warped), (2, 3, 4))
+    den = torch.mul(fixed_variance, warped_variance)
+
+    alpha = 1.0e-16  # small number to prevent zero-division
+    ncc = torch.div(num, (den + alpha))
+
+    return ncc
