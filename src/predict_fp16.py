@@ -28,7 +28,7 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import NCC, normalized_cross_correlation
+from losses.ncc_loss import NCC, normalized_cross_correlation, sector_limited_zero_ncc
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
@@ -220,10 +220,6 @@ def main():
             model_rt = datetime.now()
             predicted_theta = model(fixed_batch, moving_batch)
             print('Model runtime: ', datetime.now() - model_rt)
-            
-            model_rt = datetime.now()
-            predicted_theta = model(fixed_batch, moving_batch)
-            print('Model runtime: ', datetime.now() - model_rt)
 
             warped_batch = affine_transform(moving_batch, predicted_theta)
 
@@ -253,7 +249,7 @@ def main():
             sampleNumber += user_config.batch_size
 
             preWarpNcc = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
-            postWarpNcc = normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
+            postWarpNcc = sector_limited_zero_ncc(fixed_batch.cpu(), warped_batch.cpu())
 
             print_patchloss(preWarpNcc, postWarpNcc)
 
