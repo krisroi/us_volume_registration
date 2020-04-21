@@ -92,6 +92,9 @@ def parse():
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
+    parser.add_argument('-PSN',
+                        type=pu.int_type, default=1,
+                        help='Specify prediciton set number. Available sets: 1, 2, 3')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='1',
                         help='Number of desired CUDA core to run prediction on')
@@ -181,7 +184,7 @@ def main():
         print('Error: Apex not found, cannot go ahead with mixed precision prediction. Continuing with full precision.')
 
     #scripted_model = torch.jit.script(model)
-        
+
     criterion = NCC(useRegularization=False, device=device)
 
     fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
@@ -190,8 +193,9 @@ def main():
                                                                      filter_type=args.filter_type,
                                                                      patch_size=user_config.patch_size,
                                                                      stride=user_config.stride,
-                                                                     device=device)
-    
+                                                                     device=device,
+                                                                     PSN=args.PSN)
+
     print('\n')
     print('Number of prediction samples: {}'.format(fixed_patches.shape[0]))
     print('\n')
