@@ -178,7 +178,7 @@ def generate_train_patches(data_information, data_files, filter_type,
     return shuffled_fixed_patches.unsqueeze(1), shuffled_moving_patches.unsqueeze(1)
 
 
-def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch_size, stride, device):
+def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch_size, stride, device, PSN):
     """Loading all datasets, creates patches and store all patches in a single array.
         Args:
             DATA_ROOT (string): root folder to all data-files
@@ -187,6 +187,7 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
             filter_type (string): filter type used for pre-processing
             patch_size (int): desired patch size
             stride (int): desired stride between patches
+            PSN (int): prediction set number to run predictions on
         Returns:
             fixed patches: all fixed patches in the dataset ([num_patches, 1, **patch_size])
             moving patches: all moving patches in the dataset ([num_patches, 1, **patch_size])
@@ -195,9 +196,6 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
             Prediction patches are created and returned on the GPU if GPU is available.
     """
 
-    fixed_patches = torch.tensor([]).to(device)
-    moving_patches = torch.tensor([]).to(device)
-
     dataset = GetDatasetInformation(os.path.join(DATA_ROOT, frame), filter_type, mode='prediction')
 
     fix_set = dataset.fix_files
@@ -205,22 +203,22 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
     fix_vols = dataset.fix_vols
     mov_vols = dataset.mov_vols
 
+    fix_set = fix_set[PSN - 1]
+    mov_set = mov_set[PSN - 1]
+    fix_vols = fix_vols[PSN - 1]
+    mov_vols = mov_vols[PSN - 1]
+
     print('Creating prediction patches ... ')
 
-    for set_idx in range(len(fix_set)):
+    vol_data = LoadHDF5File(data_files, fix_set, mov_set,
+                            fix_vols, mov_vols)
+    vol_data.normalize()
+    vol_data.to(device)
 
-        printer = progress_printer(set_idx / len(fix_set))
-        print(printer, end='\r')
+    patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device)
 
-        vol_data = LoadHDF5File(data_files, fix_set[set_idx], mov_set[set_idx],
-                                fix_vols[set_idx], mov_vols[set_idx])
-        vol_data.normalize()
-        vol_data.to(device)
-
-        patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device)
-
-        fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
-        moving_patches = torch.cat((moving_patches, patched_vol_data[:, 1, :]))
+    fixed_patches = patched_vol_data[:, 0, :].to(device)
+    moving_patches = patched_vol_data[:, 1, :].to(device)
 
     print('Finished creating patches')
 
