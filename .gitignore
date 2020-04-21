@@ -16,3 +16,5 @@ output/
 # Exclude old network model
 src/models/network_old.py
 
+# Local test file
+src/predict_and_align.py
