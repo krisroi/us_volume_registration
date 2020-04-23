@@ -58,3 +58,13 @@ def get_frame(arg):
     except ValueError:
         raise argparse.ArgumentTypeError('Must be a string')
     return frame
+
+
+def cross_validation_folds(arg):
+    """Return correct number of folds for training"""
+    if arg.lower() in ('yes', 'true', '1', 'y', 't'):
+        return int(5)
+    elif arg.lower() in ('no', 'false', '0', 'n', 'f'):
+        return int(1)
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected')
