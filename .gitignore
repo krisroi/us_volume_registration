@@ -18,3 +18,6 @@ src/models/network_old.py
 
 # Local test file
 src/predict_and_align.py
+
+cross_validation_folds.txt
+create_cross_validation_list.py
