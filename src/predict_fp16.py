@@ -92,6 +92,9 @@ def parse():
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
+    parser.add_argument('-enc',
+                        type=str, default=None,
+                        help='Type PLS to use the PLSNet Encoder')
     parser.add_argument('-PSN',
                         type=pu.int_type, default=1,
                         help='Specify prediciton set number. Available sets: 1, 2, 3')
@@ -168,7 +171,10 @@ def main():
 
     # Configuration of the model
     model_config = network_config()
-    encoder = _Encoder(**model_config['ENCODER_CONFIG'])
+    if args.enc == 'PLS':
+        encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
+    else:
+        encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
     model = USARNet(encoder, affineRegression).to(device)
 
