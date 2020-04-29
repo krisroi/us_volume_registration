@@ -67,9 +67,8 @@ class GetDatasetInformation():
             data = data.loc[lambda df: data.usable == 'pred', :]  # Extract only prediction sets
         ref_filename = data.ref_filename
         mov_filename = data.mov_filename
-        # Adding 1 to frame number because volume 0 is called vol01 in file (1 is vol02 etc.)
-        ref_vol_frame_no = data.ref_vol_frame_no + 1
-        mov_vol_frame_no = data.mov_vol_frame_no + 1
+        ref_vol_frame_no = data.ref_vol_frame_no
+        mov_vol_frame_no = data.mov_vol_frame_no
 
         # Initializing empty list-holders
         fix_files = []
