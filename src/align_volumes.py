@@ -24,6 +24,9 @@ def parse():
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-diastolic (ED) frame or end-systolic (ES) frame')
+    parser.add_argument('-PSN',
+                        type=pu.int_type, required=True,
+                        help='Specify prediction set number. Available sets: 1, 2, 3')
     parser.add_argument('-ft',
                         choices={"Bilateral_lookup", "NLMF_lookup"}, default="Bilateral_lookup",
                         help='Specify the filter-type of the files to align')
@@ -59,8 +62,8 @@ def main():
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
     theta_proc_path = os.path.join(user_config.PROJECT_ROOT, user_config.PROCRUSTES, 'results', args.glob)
 
-    vol_data = LoadHDF5File(data_files, fixed_image[0],
-                            moving_image[0], fix_vol[0], mov_vol[0])
+    vol_data = LoadHDF5File(data_files, fixed_image[args.PSN - 1],
+                            moving_image[args.PSN - 1], fix_vol[args.PSN - 1], mov_vol[args.PSN - 1])
 
     fixed_volume = vol_data.data[0, :].unsqueeze(0).unsqueeze(1)
     moving_volume = vol_data.data[1, :].unsqueeze(0).unsqueeze(1)
@@ -77,7 +80,9 @@ def main():
 
     global_theta = torch.Tensor(global_theta)
     global_theta = global_theta.view(-1, 3, 4)  # Get theta on correct form for affine transform
+    print('Global theta:')
     print(global_theta)
+    print('\n')
 
     warped_volume = affine_transform(moving_volume, global_theta)
 
