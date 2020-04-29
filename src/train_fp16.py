@@ -38,7 +38,6 @@ from utils.utility_functions import progress_printer, count_parameters, printFea
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
 from utils.data import CreateDataset, GetDatasetInformation, generate_train_patches, shuffle_patches
-from utils.Transform import RandomAffine
 
 
 class FileHandler():
@@ -48,22 +47,19 @@ class FileHandler():
             bs (int): batch size
             ps (int): patch size
             st (int): stride
-            ns (int): total number of sets
             lossfile (string): path to loss file
     """
 
-    def __init__(self, lr, bs, ps, st, ns, device, lossfile):
+    def __init__(self, lr, bs, ps, st, device, lossfile):
         super(FileHandler, self).__init__()
 
         self.lr = lr
         self.bs = bs
         self.ps = ps
         self.st = st
-        self.ns = ns
         self.device = device
         self.fieldnames = ['epoch', 'training_loss', 'validation_loss', 'lr=' + str(self.lr), 'batch_size=' + str(self.bs),
-                           'patch_size=' + str(self.ps), 'stride=' + str(self.st),
-                           'number_of_datasets=' + str(self.ns), 'device=' + str(self.device)]
+                           'patch_size=' + str(self.ps), 'stride=' + str(self.st), 'device=' + str(self.device)]
         self.lossfile = lossfile
 
     def create(self):
@@ -93,6 +89,9 @@ def parse():
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-diastolic (ED) frame or end-systolic (ES) frame')
+    parser.add_argument('-enc',
+                        type=str, default=None,
+                        help='Type PLS to use the PLSNet Encoder')
     parser.add_argument('-lr',
                         type=pu.float_type, default=1e-3,
                         help='Learning rate for optimizer')
@@ -109,7 +108,7 @@ def parse():
                         type=pu.int_type, default=25,
                         help='Stride for dividing the full volume')
     parser.add_argument('-N', '--num-sets',
-                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=25,
+                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=23,
                         help='Total number of sets to use for training')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='0',
@@ -125,6 +124,9 @@ def parse():
                         type=str, default='Bilateral_lookup',
                         choices={"Bilateral_lookup", "NLMF_lookup"},
                         help='Filter type to train network with')
+    parser.add_argument('-cv', '--cross-validate',
+                        type=pu.cross_validation_folds, default=1,
+                        help='Perform 5-fold cross-validation during training (True, False)')
     parser.add_argument('-pr', '--precision',
                         type=str, default='full',
                         choices={'full', 'amp'},
@@ -132,9 +134,6 @@ def parse():
     parser.add_argument('-dr', '--drop-rate',
                         type=pu.float_type, default=0,
                         help='Drop rate to use in affine regression')
-    parser.add_argument('-da', type=pu.str2bool,
-                        default=False,
-                        help='Perform data augmentation')
     parser.add_argument('-rh', '--register-hook',
                         type=pu.str2bool, default=False,
                         help='Register hook on layers to print feature maps')
@@ -150,12 +149,12 @@ def main():
     user_config = UserConfigParser()
 
     # Enhance performance
-    cudnn.benchmark = True
-    
+    #cudnn.benchmark = True
+
     # Disable performance enhancement for reproducibility
-    #torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
-    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     # Manual seed for reproducibilty
     torch.manual_seed(0)
     np.random.seed(0)
@@ -164,7 +163,6 @@ def main():
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
-    validation_set_ratio = 0.2  # Ratio for amount of samples to use for validation
     voxelsize = 7.0000003e-4
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -195,58 +193,22 @@ def main():
     print(f"Filter type: {args.filter_type}")
     print(f"Frame: End-systole") if args.frame == 'end_systole.csv' else print(f"Frame: End-diastole")
     print(f"Training precision: float32") if apexImportError else print(f"Training precision: {args.precision}")
-    print(f"Perform data augmentation: {args.da}")
     print('\n')
 
     # Defining filepaths
-    model_name = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/models/', '{}.pt'.format(args.model_name))
-    lossfile = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output/txtfiles/', 'loss_{}.csv'.format(args.model_name))
+    model_name = os.path.join(user_config.PROJECT_ROOT, 
+                              user_config.PROJECT_NAME, 'output/models/', '{}'.format(args.model_name))
+    lossfile = os.path.join(user_config.PROJECT_ROOT, 
+                            user_config.PROJECT_NAME, 'output/txtfiles/', 'loss_{}'.format(args.model_name))
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
     data_information = os.path.join(user_config.DATA_ROOT, args.frame)
 
-    lossStorage = FileHandler(lr=args.lr, bs=args.batch_size, ps=args.patch_size,
-                              st=args.stride, ns=args.num_sets, device=device, lossfile=lossfile)
-    lossStorage.create()
-
-    fixed_patches, moving_patches = generate_train_patches(data_information=data_information,
-                                                           data_files=data_files,
-                                                           filter_type=args.filter_type,
-                                                           patch_size=args.patch_size,
-                                                           stride=args.stride,
-                                                           device=device,
-                                                           tot_num_sets=args.num_sets
-                                                           )
-
-    # Perform data augmentation
-    if args.da:
-        print('Performing data augmentation')
-
-        # Pick 10% of fixed patches and perform augmentation on them
-        fixed_set = fixed_patches[0:math.ceil((10 * fixed_patches.shape[0]) / 100), :]
-
-        transform = RandomAffine(degrees=(0), translation=(0), voxelsize=voxelsize)
-        transformed_fixed_patches = transform(fixed_set)
-
-        fixed_patches = torch.cat((fixed_patches, fixed_set), dim=0)
-        moving_patches = torch.cat((moving_patches, transformed_fixed_patches), dim=0)
-
-        del fixed_set, transformed_fixed_patches
-
-        fixed_patches, moving_patches = shuffle_patches(fixed_patches, moving_patches)
-
-    fixed_training_patches = fixed_patches[0:math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)), :]
-    moving_training_patches = moving_patches[0:math.floor(moving_patches.shape[0] * (1 - validation_set_ratio)), :]
-
-    fixed_validation_patches = fixed_patches[math.floor(fixed_patches.shape[0] * (1 - validation_set_ratio)):fixed_patches.shape[0], :]
-    moving_validation_patches = moving_patches[math.floor(moving_patches.shape[0] * (1 - validation_set_ratio)):moving_patches.shape[0], :]
-
-    print('Number of training samples: ', fixed_training_patches.shape[0])
-    print('Number of validation samples: ', fixed_validation_patches.shape[0])
-    print('\n')
-
     # Model configuration
     model_config = network_config()
-    encoder = _Encoder(**model_config['ENCODER_CONFIG'])
+    if args.enc == 'PLS':
+        encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
+    else:
+        encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
 
     model = USARNet(encoder, affineRegression).to(device)
@@ -265,60 +227,103 @@ def main():
     # Creating loss-storage variables
     epoch_train_loss = torch.zeros(args.epochs).to(device)
     epoch_validation_loss = torch.zeros(args.epochs).to(device)
+    fold_train_loss = torch.Tensor(args.cross_validate)
+    fold_validation_loss = torch.Tensor(args.cross_validate)
+    
+    fixed_patches, moving_patches = generate_train_patches(data_information=data_information,
+                                                           data_files=data_files,
+                                                           filter_type=args.filter_type,
+                                                           patch_size=args.patch_size,
+                                                           stride=args.stride,
+                                                           device=device,
+                                                           tot_num_sets=args.num_sets
+                                                           )
+    
+    print('Total number of patches: ', fixed_patches.shape[0])
 
     print('Initializing training')
     print('\n')
 
     train_starttime = datetime.now()
 
-    for epoch in range(args.epochs):
-
-        # Weight for regularization of loss function.
-        weight = 12 / (2 + math.exp(epoch / 2))
-
-        with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
-
-            model.train()
-            training_loss = train(fixed_patches=fixed_training_patches,
-                                  moving_patches=moving_training_patches,
-                                  epoch=epoch,
-                                  model=model,
-                                  criterion=criterion,
-                                  optimizer=optimizer,
-                                  weight=weight,
-                                  device=device)
-
-        with torch.no_grad():
-            model.eval()
-            validation_loss = validate(fixed_patches=fixed_validation_patches,
-                                       moving_patches=moving_validation_patches,
-                                       epoch=epoch,
-                                       model=model,
-                                       criterion=criterion,
-                                       weight=weight,
-                                       device=device)
-
-        epoch_train_loss[epoch] = torch.mean(training_loss)
-        epoch_validation_loss[epoch] = torch.mean(validation_loss)
-
-        # Save model
-        model_info = {'model_state_dict': model.state_dict(),
-                      'optimizer_state_dict': optimizer.state_dict(),
-                      'epoch': epoch
-                      }
-        torch.save(model_info, model_name)
-
-        print('Epoch: {}/{} \t Training_loss: {} \t Validation loss: {}'
-              .format(epoch + 1, args.epochs, epoch_train_loss[epoch], epoch_validation_loss[epoch]))
+    for fold in range(args.cross_validate):
+        
+        print('Fold: {}/{}'.format(fold + 1, args.cross_validate))
         print('\n')
 
-        # Write loss to file
-        lossStorage.write(epoch, epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item())
+        lossStorage = FileHandler(lr=args.lr, bs=args.batch_size, ps=args.patch_size,
+                                  st=args.stride, device=device, 
+                                  lossfile=(lossfile + '_fold{}.csv'.format(fold + 1)))
+        lossStorage.create()
+        
+        slices = get_slices(tot_patches=fixed_patches.shape[0], curr_fold=(fold + 1), tot_folds=args.cross_validate)
+
+        fix_train_patches = torch.cat((fixed_patches[slices['train_slice1_start']:slices['train_slice1_end']],
+                                       fixed_patches[slices['train_slice2_start']:slices['train_slice2_end']]), 0)
+        mov_train_patches = torch.cat((moving_patches[slices['train_slice1_start']:slices['train_slice1_end']],
+                                       moving_patches[slices['train_slice2_start']:slices['train_slice2_end']]), 0)
+
+        fix_val_patches = fixed_patches[slices['val_slice_start']:slices['val_slice_end'], :]
+        mov_val_patches = moving_patches[slices['val_slice_start']:slices['val_slice_end'], :]
+
+        print('\n')
+        print('Training samples in fold {}: {}'.format(fold + 1, fix_train_patches.shape[0]))
+        print('Validation samples in fold {}: {}'.format(fold + 1, fix_val_patches.shape[0]))
+        print('\n')
+
+        for epoch in range(args.epochs):
+
+            # Weight for regularization of loss function.
+            weight = 12 / (2 + math.exp(epoch / 2))
+
+            with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
+
+                model.train()
+                training_loss = train(fixed_patches=fix_train_patches,
+                                      moving_patches=mov_train_patches,
+                                      epoch=epoch,
+                                      model=model,
+                                      criterion=criterion,
+                                      optimizer=optimizer,
+                                      weight=weight,
+                                      device=device)
+
+            with torch.no_grad():
+                model.eval()
+                validation_loss = validate(fixed_patches=fix_val_patches,
+                                           moving_patches=mov_val_patches,
+                                           epoch=epoch,
+                                           model=model,
+                                           criterion=criterion,
+                                           weight=weight,
+                                           device=device)
+
+            epoch_train_loss[epoch] = torch.mean(training_loss)
+            epoch_validation_loss[epoch] = torch.mean(validation_loss)
+
+            # Save model
+            model_info = {'model_state_dict': model.state_dict(),
+                          'optimizer_state_dict': optimizer.state_dict(),
+                          'epoch': epoch
+                          }
+            torch.save(model_info, (model_name + '_fold{}.pt'.format(fold + 1)))
+
+            print('Epoch: {}/{} \t Training_loss: {} \t Validation loss: {}'
+                  .format(epoch + 1, args.epochs, epoch_train_loss[epoch], epoch_validation_loss[epoch]))
+            print('\n')
+
+            # Write loss to file
+            lossStorage.write(epoch, epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item())
+            
+        fold_train_loss[fold] = torch.mean(epoch_train_loss)
+        fold_validation_loss[fold] = torch.mean(epoch_validation_loss)
+        
+        del fix_train_patches, mov_train_patches, fix_val_patches, mov_val_patches
 
     print('Training ended after ', datetime.now() - train_starttime)
     print('\n')
-    print('Train loss:      ', epoch_train_loss)
-    print('Validation loss: ', epoch_validation_loss)
+    print('End train loss:      ', fold_train_loss)
+    print('End validation loss: ', fold_validation_loss)
 
 
 def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, weight, device):
@@ -432,6 +437,28 @@ def network_config():
     write(bs=args.batch_size, ps=args.patch_size, st=args.stride)
 
     return kwargs
+
+
+def get_slices(tot_patches, curr_fold, tot_folds):
+
+    # Setting tot_folds to 5 to get correct slices when not doing cross-validation
+    if tot_folds == 1:
+        tot_folds = 5
+    val_slice_start = math.floor(tot_patches * (1 - (curr_fold / tot_folds)))
+    val_slice_end = math.floor(tot_patches * ((tot_folds - (curr_fold - 1)) / tot_folds))
+    train_slice1_start = math.floor(0)
+    train_slice2_start = math.floor(tot_patches * ((tot_folds - (curr_fold - 1)) / tot_folds))
+    train_slice1_end = math.floor(tot_patches * (1 - (curr_fold / tot_folds)))
+    train_slice2_end = math.floor(tot_patches)
+
+    slice_dict = {'val_slice_start': val_slice_start,
+                  'val_slice_end': val_slice_end,
+                  'train_slice1_start': train_slice1_start,
+                  'train_slice1_end': train_slice1_end,
+                  'train_slice2_start': train_slice2_start,
+                  'train_slice2_end': train_slice2_end}
+
+    return slice_dict
 
 
 def get_hook(model):
