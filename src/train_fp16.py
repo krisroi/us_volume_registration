@@ -152,12 +152,12 @@ def main():
     #cudnn.benchmark = True
 
     # Disable performance enhancement for reproducibility
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    #torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.benchmark = False
 
     # Manual seed for reproducibilty
     torch.manual_seed(0)
-    np.random.seed(0)
+    np.random.seed(1)
 
     # Choose GPU device (0 or 1 available, -1 masks both GPUs and runs the program on CPU)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -182,6 +182,7 @@ def main():
     print(f"Device: {device}")
     print("=" * 40, "Parameters", "=" * 40)
     print(f"Model name: {args.model_name}")
+    print(f"Encoder: PLSNet") if args.enc == 'PLS' else print(f"Encoder: Encoder")
     print(f"Learning rate: {args.lr}")
     print(f"Epochs: {args.epochs}")
     print(f"Batch size: {args.batch_size}")
