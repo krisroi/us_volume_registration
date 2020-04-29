@@ -53,7 +53,7 @@ class GetDatasetInformation():
         self.filter_type = filter_type
         self.mode = mode
 
-        self.fix_files, self.mov_files, self.fix_vols, self.mov_vols = self.load_dataset()
+        self.fix_files, self.mov_files, self.fix_vols, self.mov_vols, self.pid = self.load_dataset()
 
     def load_dataset(self):
         """ Reads the dataset information, pulls out the usable datasets
@@ -69,20 +69,23 @@ class GetDatasetInformation():
         mov_filename = data.mov_filename
         ref_vol_frame_no = data.ref_vol_frame_no
         mov_vol_frame_no = data.mov_vol_frame_no
+        patient_id = data.pid
 
         # Initializing empty list-holders
         fix_files = []
         mov_files = []
         fix_vols = []
         mov_vols = []
+        pid = []
 
         for _, pat_idx in enumerate((ref_filename.index)):
             fix_files.append('{}_{}.h5'.format(ref_filename[pat_idx], self.filter_type))
             mov_files.append('{}_{}.h5'.format(mov_filename[pat_idx], self.filter_type))
             fix_vols.append('{:02}'.format(ref_vol_frame_no[pat_idx]))
             mov_vols.append('{:02}'.format(mov_vol_frame_no[pat_idx]))
+            pid.append('{}'.format(patient_id[pat_idx]))
 
-        return fix_files, mov_files, fix_vols, mov_vols
+        return fix_files, mov_files, fix_vols, mov_vols, pid
 
 
 def shuffle_patches(fixed_patches, moving_patches):
@@ -137,20 +140,27 @@ def generate_train_patches(data_information, data_files, filter_type,
     moving_patches = torch.tensor([]).cpu()
 
     dataset = GetDatasetInformation(data_information, filter_type, mode='training')
+    
+    print(data_information)
 
     fix_set = dataset.fix_files
     mov_set = dataset.mov_files
     fix_vols = dataset.fix_vols
     mov_vols = dataset.mov_vols
+    pid = dataset.pid
 
-    fix_set, mov_set, fix_vol, mov_vols = shuffle(fix_set, mov_set, fix_vols, mov_vols)
+    fix_set, mov_set, fix_vols, mov_vols, pid = shuffle(fix_set, mov_set, fix_vols, mov_vols, pid)
 
     fix_set = fix_set[0:tot_num_sets]
     mov_set = mov_set[0:tot_num_sets]
     fix_vols = fix_vols[0:tot_num_sets]
     mov_vols = mov_vols[0:tot_num_sets]
+    pid = pid[0:tot_num_sets]
 
     print('Creating patches ... ')
+    print('----------------------------------------------------')
+    print('pid  filename                           vol  patches')
+    print('----------------------------------------------------')
 
     for set_idx in range(len(fix_set)):
 
@@ -167,7 +177,13 @@ def generate_train_patches(data_information, data_files, filter_type,
 
         fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
         moving_patches = torch.cat((moving_patches, patched_vol_data[:, 1, :]))
-
+        
+        print('{:<5}{:>5}{:>10}{:>5}'.format(pid[set_idx], fix_set[set_idx], fix_vols[set_idx], 
+                                            patched_vol_data[:, 0, :].shape[0]))
+        print('{:<5}{:>5}{:>10}{:>5}'.format(pid[set_idx], mov_set[set_idx], mov_vols[set_idx],
+                                            patched_vol_data[:, 1, :].shape[0]))
+        print('-----------------------------------------')
+        
         del patched_vol_data
 
     print('Finished creating patches')
