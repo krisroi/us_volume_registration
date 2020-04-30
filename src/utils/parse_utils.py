@@ -40,8 +40,8 @@ def range_limited_float_type(arg):
 def range_limited_int_type_TOT_NUM_SETS(arg):
     """Type function for argparse - an integer within some predefined bounds"""
     i = int_type(arg)
-    if i < 1 or i > 23:
-        raise argparse.ArgumentTypeError('Total number of sets must be between {} and {}'.format(1, 23))
+    if i < 1 or i > 24:
+        raise argparse.ArgumentTypeError('Total number of sets must be between {} and {}'.format(1, 24))
     return i
 
 
