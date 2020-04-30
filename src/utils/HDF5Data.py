@@ -1,6 +1,7 @@
 import h5py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import os
 
@@ -20,15 +21,18 @@ class LoadHDF5File():
             volume_data.data[1, :] returns the moving image.
     """
 
-    def __init__(self, filepath, fix_file, mov_file, fix_vol_no, mov_vol_no):
+    def __init__(self, filepath, fix_file, mov_file, fix_vol_no, mov_vol_no, dims):
         super(LoadHDF5File, self).__init__()
         self.filepath = filepath
         self.fix_file = fix_file
         self.mov_file = mov_file
         self.fix_vol_no = 'vol{}'.format(fix_vol_no)
         self.mov_vol_no = 'vol{}'.format(mov_vol_no)
+        self.dims = dims
 
-        self.data = self.load_hdf5()
+        self.fix_data, self.mov_data = self.load_hdf5()
+
+        self.data = torch.Tensor([])
 
     def load_hdf5(self):
         """ Loads HDF5-data from the specified filepath
@@ -45,14 +49,19 @@ class LoadHDF5File():
             fix_vol = fixed_volumes[self.fix_vol_no][:]
             mov_vol = moving_volumes[self.mov_vol_no][:]
 
-            shape = list(fix_vol.shape)
-            shape = (2, shape[0], shape[1], shape[2])
+            fix_data = torch.Tensor(1, *fix_vol.shape)
+            mov_data = torch.Tensor(1, *mov_vol.shape)
 
-            vol_data = torch.empty(shape)
-            vol_data[0] = torch.from_numpy(fix_vol).float()
-            vol_data[1] = torch.from_numpy(mov_vol).float()
+            fix_data[0] = torch.from_numpy(fix_vol).float()
+            mov_data[0] = torch.from_numpy(mov_vol).float()
 
-        return vol_data
+        return fix_data, mov_data
+
+    def interpolate_and_concatenate(self):
+        fix_interpolated = F.interpolate(self.fix_data.unsqueeze(0), size=self.dims, mode='trilinear', align_corners=False)
+        mov_interpolated = F.interpolate(self.mov_data.unsqueeze(0), size=self.dims, mode='trilinear', align_corners=False)
+
+        self.data = torch.cat((fix_interpolated.squeeze(0), mov_interpolated.squeeze(0)), 0)
 
     def normalize(self):
         """ Normalizes pixel data in the .h5 files
@@ -60,19 +69,22 @@ class LoadHDF5File():
             volume_data = HDF5Image(required_parameters) # Loading files into volume_data
             volume_data.normalize() # Normalizes the values stored in volume_data
         """
-        self.data = torch.div(self.data, torch.max(self.data))
+        self.fix_data = torch.div(self.fix_data, torch.max(self.fix_data))
+        self.mov_data = torch.div(self.mov_data, torch.max(self.mov_data))
 
     def to(self, device):
         """ Transfers data-variable to specified device
             Args:
                 device (torch.device): desired device
         """
-        self.data = self.data.to(device)
+        self.fix_data = self.fix_data.to(device)
+        self.mov_data = self.mov_data.to(device)
 
     def cpu(self):
-        """ Transfers data-variable to CPU
+        """ Transfers data-variables to CPU
         """
-        self.data = self.data.cpu()
+        self.fix_data = self.fix_data.cpu()
+        self.mov_data = self.mov_data.cpu()
 
 
 class SaveHDF5File():
