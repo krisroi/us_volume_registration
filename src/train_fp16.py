@@ -108,7 +108,7 @@ def parse():
                         type=pu.int_type, default=25,
                         help='Stride for dividing the full volume')
     parser.add_argument('-N', '--num-sets',
-                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=23,
+                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=24,
                         help='Total number of sets to use for training')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='0',
@@ -197,9 +197,9 @@ def main():
     print('\n')
 
     # Defining filepaths
-    model_name = os.path.join(user_config.PROJECT_ROOT, 
+    model_name = os.path.join(user_config.PROJECT_ROOT,
                               user_config.PROJECT_NAME, 'output/models/', '{}'.format(args.model_name))
-    lossfile = os.path.join(user_config.PROJECT_ROOT, 
+    lossfile = os.path.join(user_config.PROJECT_ROOT,
                             user_config.PROJECT_NAME, 'output/txtfiles/', 'loss_{}'.format(args.model_name))
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.filter_type))
     data_information = os.path.join(user_config.DATA_ROOT, args.frame)
@@ -230,7 +230,7 @@ def main():
     epoch_validation_loss = torch.zeros(args.epochs).to(device)
     fold_train_loss = torch.Tensor(args.cross_validate)
     fold_validation_loss = torch.Tensor(args.cross_validate)
-    
+
     fixed_patches, moving_patches = generate_train_patches(data_information=data_information,
                                                            data_files=data_files,
                                                            filter_type=args.filter_type,
@@ -239,7 +239,7 @@ def main():
                                                            device=device,
                                                            tot_num_sets=args.num_sets
                                                            )
-    
+
     print('Total number of patches: ', fixed_patches.shape[0])
 
     print('Initializing training')
@@ -248,15 +248,15 @@ def main():
     train_starttime = datetime.now()
 
     for fold in range(args.cross_validate):
-        
+
         print('Fold: {}/{}'.format(fold + 1, args.cross_validate))
         print('\n')
 
         lossStorage = FileHandler(lr=args.lr, bs=args.batch_size, ps=args.patch_size,
-                                  st=args.stride, device=device, 
+                                  st=args.stride, device=device,
                                   lossfile=(lossfile + '_fold{}.csv'.format(fold + 1)))
         lossStorage.create()
-        
+
         slices = get_slices(tot_patches=fixed_patches.shape[0], curr_fold=(fold + 1), tot_folds=args.cross_validate)
 
         fix_train_patches = torch.cat((fixed_patches[slices['train_slice1_start']:slices['train_slice1_end']],
@@ -315,10 +315,10 @@ def main():
 
             # Write loss to file
             lossStorage.write(epoch, epoch_train_loss[epoch].item(), epoch_validation_loss[epoch].item())
-            
+
         fold_train_loss[fold] = torch.mean(epoch_train_loss)
         fold_validation_loss[fold] = torch.mean(epoch_validation_loss)
-        
+
         del fix_train_patches, mov_train_patches, fix_val_patches, mov_val_patches
 
     print('Training ended after ', datetime.now() - train_starttime)
