@@ -1,6 +1,8 @@
 import torch
+import torch.nn.functional as F
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
 
 from sklearn.utils import shuffle
 from torch.utils.data import Dataset, DataLoader
@@ -53,7 +55,23 @@ class GetDatasetInformation():
         self.filter_type = filter_type
         self.mode = mode
 
-        self.fix_files, self.mov_files, self.fix_vols, self.mov_vols, self.pid = self.load_dataset()
+        self.fix_files, self.mov_files, self.fix_vols, self.mov_vols, self.pid, self.vol_dim = self.load_dataset()
+
+    def get_biggest_dimensions(self):
+        """ Get biggest dimension in each direction to use for upsampling
+        """
+        x_dim = 0
+        y_dim = 0
+        z_dim = 0
+        for dim in self.vol_dim:
+            dim = dim.split('x')
+            if int(dim[0]) > x_dim:
+                x_dim = int(dim[0])
+            if int(dim[1]) > y_dim:
+                y_dim = int(dim[1])
+            if int(dim[2]) > z_dim:
+                z_dim = int(dim[2])
+        return tuple((x_dim, y_dim, z_dim))
 
     def load_dataset(self):
         """ Reads the dataset information, pulls out the usable datasets
@@ -70,6 +88,7 @@ class GetDatasetInformation():
         ref_vol_frame_no = data.ref_vol_frame_no
         mov_vol_frame_no = data.mov_vol_frame_no
         patient_id = data.pid
+        ref_vol_dim = data.ref_vol_dim
 
         # Initializing empty list-holders
         fix_files = []
@@ -77,6 +96,7 @@ class GetDatasetInformation():
         fix_vols = []
         mov_vols = []
         pid = []
+        vol_dim = []
 
         for _, pat_idx in enumerate((ref_filename.index)):
             fix_files.append('{}_{}.h5'.format(ref_filename[pat_idx], self.filter_type))
@@ -84,8 +104,9 @@ class GetDatasetInformation():
             fix_vols.append('{:02}'.format(ref_vol_frame_no[pat_idx]))
             mov_vols.append('{:02}'.format(mov_vol_frame_no[pat_idx]))
             pid.append('{}'.format(patient_id[pat_idx]))
+            vol_dim.append('{}'.format(ref_vol_dim[pat_idx]))
 
-        return fix_files, mov_files, fix_vols, mov_vols, pid
+        return fix_files, mov_files, fix_vols, mov_vols, pid, vol_dim
 
 
 def shuffle_patches(fixed_patches, moving_patches):
@@ -140,8 +161,6 @@ def generate_train_patches(data_information, data_files, filter_type,
     moving_patches = torch.tensor([]).cpu()
 
     dataset = GetDatasetInformation(data_information, filter_type, mode='training')
-    
-    print(data_information)
 
     fix_set = dataset.fix_files
     mov_set = dataset.mov_files
@@ -157,33 +176,61 @@ def generate_train_patches(data_information, data_files, filter_type,
     mov_vols = mov_vols[0:tot_num_sets]
     pid = pid[0:tot_num_sets]
 
+    dims = dataset.get_biggest_dimensions()
+
     print('Creating patches ... ')
-    print('----------------------------------------------------')
-    print('pid  filename                           vol  patches')
-    print('----------------------------------------------------')
+    print('-----------------------------------------------------------------------------------------------------------------')
+    print('pid  filename                           vol     patches    Shapes prior to upsampling    Shapes after upsampling')
+    print('-----------------------------------------------------------------------------------------------------------------')
 
     for set_idx in range(len(fix_set)):
 
         printer = progress_printer(set_idx / len(fix_set))
         print(printer, end='\r')
 
-        vol_data = LoadHDF5File(data_files, fix_set[set_idx], mov_set[set_idx],
-                                fix_vols[set_idx], mov_vols[set_idx])
-        vol_data.normalize()
-        vol_data.to(device)
+        hdf_data = LoadHDF5File(data_files, fix_set[set_idx], mov_set[set_idx],
+                                fix_vols[set_idx], mov_vols[set_idx], dims)
+        hdf_data.normalize()
+        hdf_data.to(device)
 
-        patched_vol_data, _ = create_patches(vol_data.data, patch_size, stride, device)
+        hdf_data.interpolate_and_concatenate()
+
+        '''
+        fig, ax = plt.subplots(2, 2, squeeze=False, figsize=(40, 40))
+
+        original_fix = hdf_data.fix_data[hdf_data.fix_data.shape[1] // 2].cpu()
+        original_mov = hdf_data.mov_data[hdf_data.mov_data.shape[1] // 2].cpu()
+        interpolated_fix = hdf_data.data[0, hdf_data.data.shape[1] // 2].cpu()
+        interpolated_mov = hdf_data.data[1, hdf_data.data.shape[1] // 2].cpu()
+        ax[0, 0].imshow(original_fix, origin='left', cmap='gray')
+        ax[0, 1].imshow(original_mov, origin='left', cmap='gray')
+        ax[1, 0].imshow(interpolated_fix, origin='left', cmap='gray')
+        ax[1, 1].imshow(interpolated_mov, origin='left', cmap='gray')
+        ax[0, 0].set_xlim([0, hdf_data.fix_data.shape[1]])
+        ax[0, 0].set_ylim([hdf_data.fix_data.shape[2], 0])
+        ax[0, 1].set_xlim([0, hdf_data.fix_data.shape[1]])
+        ax[0, 1].set_ylim([hdf_data.fix_data.shape[2], 0])
+        ax[1, 0].set_xlim([0, hdf_data.data.shape[1]])
+        ax[1, 0].set_ylim([hdf_data.data.shape[2], 0])
+        ax[1, 1].set_xlim([0, hdf_data.data.shape[1]])
+        ax[1, 1].set_ylim([hdf_data.data.shape[2], 0])
+
+        plt.show()'''
+
+        patched_vol_data, _ = create_patches(hdf_data.data, patch_size, stride, device)
         patched_vol_data = patched_vol_data.cpu()
 
         fixed_patches = torch.cat((fixed_patches, patched_vol_data[:, 0, :]))
         moving_patches = torch.cat((moving_patches, patched_vol_data[:, 1, :]))
-        
-        print('{:<5}{:>5}{:>10}{:>5}'.format(pid[set_idx], fix_set[set_idx], fix_vols[set_idx], 
-                                            patched_vol_data[:, 0, :].shape[0]))
-        print('{:<5}{:>5}{:>10}{:>5}'.format(pid[set_idx], mov_set[set_idx], mov_vols[set_idx],
-                                            patched_vol_data[:, 1, :].shape[0]))
+
+        print('{:<5}{:>5}{:>10}{:>5}       {}   {}'.format(pid[set_idx], fix_set[set_idx], fix_vols[set_idx],
+                                                           patched_vol_data[:, 0, :].shape[0],
+                                                           hdf_data.fix_data.shape, hdf_data.data[0, :].shape))
+        print('{:<5}{:>5}{:>10}{:>5}       {}   {}'.format(pid[set_idx], mov_set[set_idx], mov_vols[set_idx],
+                                                           patched_vol_data[:, 1, :].shape[0],
+                                                           hdf_data.mov_data.shape, hdf_data.data[1, :].shape))
         print('-----------------------------------------')
-        
+
         del patched_vol_data
 
     print('Finished creating patches')
@@ -209,6 +256,9 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
             loc: location of each patch
         Note:
             Prediction patches are created and returned on the GPU if GPU is available.
+        Issue:
+            If prediction fix and moving volumes are of different sizes, the smaller one must
+            be interpolated to be able to concatenate them.
     """
 
     dataset = GetDatasetInformation(os.path.join(DATA_ROOT, frame), filter_type, mode='prediction')
@@ -218,6 +268,8 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
     fix_vols = dataset.fix_vols
     mov_vols = dataset.mov_vols
 
+    dims = dataset.get_biggest_dimensions()
+
     fix_set = fix_set[PSN - 1]
     mov_set = mov_set[PSN - 1]
     fix_vols = fix_vols[PSN - 1]
@@ -225,12 +277,14 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
 
     print('Creating prediction patches ... ')
 
-    vol_data = LoadHDF5File(data_files, fix_set, mov_set,
-                            fix_vols, mov_vols)
-    vol_data.normalize()
-    vol_data.to(device)
+    hdf_data = LoadHDF5File(data_files, fix_set, mov_set,
+                            fix_vols, mov_vols, dims)
+    hdf_data.normalize()
+    hdf_data.to(device)
 
-    patched_vol_data, loc = create_patches(vol_data.data, patch_size, stride, device)
+    vol_data = torch.cat((hdf_data.fix_data, hdf_data.mov_data), 0)
+
+    patched_vol_data, loc = create_patches(vol_data, patch_size, stride, device)
 
     fixed_patches = patched_vol_data[:, 0, :].to(device)
     moving_patches = patched_vol_data[:, 1, :].to(device)
