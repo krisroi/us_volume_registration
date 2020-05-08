@@ -56,17 +56,20 @@ def main():
     moving_image = dataset.mov_files
     fix_vol = dataset.fix_vols
     mov_vol = dataset.mov_vols
+    
+    dims = dataset.get_biggest_dimensions()
 
     voxelsize = 7.000003e-4
 
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
     theta_proc_path = os.path.join(user_config.PROJECT_ROOT, user_config.PROCRUSTES, 'results', args.glob)
 
-    vol_data = LoadHDF5File(data_files, fixed_image[args.PSN - 1],
-                            moving_image[args.PSN - 1], fix_vol[args.PSN - 1], mov_vol[args.PSN - 1])
-
-    fixed_volume = vol_data.data[0, :].unsqueeze(0).unsqueeze(1)
-    moving_volume = vol_data.data[1, :].unsqueeze(0).unsqueeze(1)
+    vol_data = LoadHDF5File(data_files, 
+                            fixed_image[args.PSN - 1], moving_image[args.PSN - 1], 
+                            fix_vol[args.PSN - 1], mov_vol[args.PSN - 1], dims=None)
+    
+    fixed_volume = vol_data.fix_data.unsqueeze(0)
+    moving_volume = vol_data.mov_data.unsqueeze(0)
 
     # Reading global theta from file
     global_theta = []
@@ -88,9 +91,17 @@ def main():
 
     pre_loss = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
     post_loss = sector_limited_zero_ncc(fixed_volume, warped_volume)
-
-    print('ncc similarity pre warping:  ', pre_loss)
-    print('ncc similarity post warping: ', post_loss)
+    
+    print('\n')
+    print('{}'.format('Post alignment values'))
+    print('*' * 100)
+    print('Prediction set' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' +
+          'Improvement' + ' | ' + 'Percentwice imp.')
+    print('{:<8}{:>20}{:>20}{:>18}{:>13}%'.format(args.PSN, 
+                                                   round(pre_loss.item(), 4), 
+                                                   round(post_loss.item(), 4), 
+                                                   round((post_loss.item() - pre_loss.item()), 4),
+                                                   round(100 - ((pre_loss.item() / post_loss.item()) * 100), 2)))
 
     plot_volumes(fixed_volume, moving_volume, warped_volume)
 

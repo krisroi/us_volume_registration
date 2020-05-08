@@ -71,6 +71,7 @@ class GetDatasetInformation():
                 y_dim = int(dim[1])
             if int(dim[2]) > z_dim:
                 z_dim = int(dim[2])
+                
         return tuple((x_dim, y_dim, z_dim))
 
     def load_dataset(self):
@@ -79,6 +80,7 @@ class GetDatasetInformation():
         """
 
         data = pd.read_csv(self.filename)
+        vol_dim = data.ref_vol_dim.to_list()
         if self.mode == 'training':
             data = data.loc[lambda df: data.usable == 'y', :]  # Extract only usable datasets (y: yes)
         elif self.mode == 'prediction':
@@ -88,7 +90,6 @@ class GetDatasetInformation():
         ref_vol_frame_no = data.ref_vol_frame_no
         mov_vol_frame_no = data.mov_vol_frame_no
         patient_id = data.pid
-        ref_vol_dim = data.ref_vol_dim
 
         # Initializing empty list-holders
         fix_files = []
@@ -96,7 +97,6 @@ class GetDatasetInformation():
         fix_vols = []
         mov_vols = []
         pid = []
-        vol_dim = []
 
         for _, pat_idx in enumerate((ref_filename.index)):
             fix_files.append('{}_{}.h5'.format(ref_filename[pat_idx], self.filter_type))
@@ -104,7 +104,6 @@ class GetDatasetInformation():
             fix_vols.append('{:02}'.format(ref_vol_frame_no[pat_idx]))
             mov_vols.append('{:02}'.format(mov_vol_frame_no[pat_idx]))
             pid.append('{}'.format(patient_id[pat_idx]))
-            vol_dim.append('{}'.format(ref_vol_dim[pat_idx]))
 
         return fix_files, mov_files, fix_vols, mov_vols, pid, vol_dim
 
@@ -190,16 +189,17 @@ def generate_train_patches(data_information, data_files, filter_type,
 
         hdf_data = LoadHDF5File(data_files, fix_set[set_idx], mov_set[set_idx],
                                 fix_vols[set_idx], mov_vols[set_idx], dims)
+        
         hdf_data.normalize()
         hdf_data.to(device)
 
         hdf_data.interpolate_and_concatenate()
-
+        
         '''
         fig, ax = plt.subplots(2, 2, squeeze=False, figsize=(40, 40))
 
-        original_fix = hdf_data.fix_data[hdf_data.fix_data.shape[1] // 2].cpu()
-        original_mov = hdf_data.mov_data[hdf_data.mov_data.shape[1] // 2].cpu()
+        original_fix = hdf_data.fix_data[0, hdf_data.fix_data.shape[1] // 2].cpu()
+        original_mov = hdf_data.mov_data[0, hdf_data.mov_data.shape[1] // 2].cpu()
         interpolated_fix = hdf_data.data[0, hdf_data.data.shape[1] // 2].cpu()
         interpolated_mov = hdf_data.data[1, hdf_data.data.shape[1] // 2].cpu()
         ax[0, 0].imshow(original_fix, origin='left', cmap='gray')
@@ -281,7 +281,9 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
                             fix_vols, mov_vols, dims)
     hdf_data.normalize()
     hdf_data.to(device)
-
+    
+    hdf_data.interpolate_and_concatenate()
+    
     vol_data = torch.cat((hdf_data.fix_data, hdf_data.mov_data), 0)
 
     patched_vol_data, loc = create_patches(vol_data, patch_size, stride, device)

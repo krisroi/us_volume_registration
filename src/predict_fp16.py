@@ -216,6 +216,9 @@ def main():
 
     sampleNumber = 1  # Hold index for writing correctly to .h5 file
     saveData = SaveHDF5File(user_config.DATA_ROOT)  # Initialize file for saving patches
+    
+    pre_ncc = 0
+    post_ncc = 0
 
     print('Predicting')
 
@@ -262,6 +265,23 @@ def main():
             postWarpNcc = sector_limited_zero_ncc(fixed_batch.cpu(), warped_batch.cpu())
 
             print_patchloss(preWarpNcc, postWarpNcc)
+            
+            pre_ncc += torch.sum(preWarpNcc, 0)
+            post_ncc += torch.sum(postWarpNcc, 0)
+            
+        pre_av = torch.div(pre_ncc, fixed_patches.shape[0]).item()
+        post_av = torch.div(post_ncc, fixed_patches.shape[0]).item()
+        
+        print('\n')
+        print('{}'.format('Averaged values'))
+        print('*' * 100)
+        print('Number of patches' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' +
+          'Improvement' + ' | ' + 'Percentwice imp.')
+        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(fixed_patches.shape[0], 
+                                                       round(pre_av, 4), 
+                                                       round(post_av, 4), 
+                                                       round((post_av - pre_av), 4),
+                                                       round(100 - ((pre_av / post_av) * 100), 2)))
 
 
 def print_patchloss(preWarpNcc, postWarpNcc):

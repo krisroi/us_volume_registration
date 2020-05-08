@@ -108,7 +108,7 @@ def parse():
                         type=pu.int_type, default=25,
                         help='Stride for dividing the full volume')
     parser.add_argument('-N', '--num-sets',
-                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=24,
+                        type=pu.range_limited_int_type_TOT_NUM_SETS, default=23,
                         help='Total number of sets to use for training')
     parser.add_argument('-cvd', '--cuda-visible-devices',
                         type=str, default='0',
@@ -157,7 +157,7 @@ def main():
 
     # Manual seed for reproducibilty
     torch.manual_seed(0)
-    np.random.seed(1)
+    np.random.seed(0)
 
     # Choose GPU device (0 or 1 available, -1 masks both GPUs and runs the program on CPU)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -214,6 +214,7 @@ def main():
 
     model = USARNet(encoder, affineRegression).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
 
     # Decide to do FP32 training or mixed precision
     if args.precision == 'amp' and not apexImportError:
@@ -298,6 +299,8 @@ def main():
                                            criterion=criterion,
                                            weight=weight,
                                            device=device)
+            
+            #scheduler.step()
 
             epoch_train_loss[epoch] = torch.mean(training_loss)
             epoch_validation_loss[epoch] = torch.mean(validation_loss)
@@ -323,8 +326,8 @@ def main():
 
     print('Training ended after ', datetime.now() - train_starttime)
     print('\n')
-    print('End train loss:      ', fold_train_loss)
-    print('End validation loss: ', fold_validation_loss)
+    print('Average fold training loss:   ', fold_train_loss)
+    print('Average fold validation loss: ', fold_validation_loss)
 
 
 def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, weight, device):

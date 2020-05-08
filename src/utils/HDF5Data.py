@@ -58,8 +58,10 @@ class LoadHDF5File():
         return fix_data, mov_data
 
     def interpolate_and_concatenate(self):
-        fix_interpolated = F.interpolate(self.fix_data.unsqueeze(0), size=self.dims, mode='trilinear', align_corners=False)
-        mov_interpolated = F.interpolate(self.mov_data.unsqueeze(0), size=self.dims, mode='trilinear', align_corners=False)
+        fix_interpolated = F.interpolate(self.fix_data.unsqueeze(0), scale_factor=(self.dims[0]/self.fix_data.shape[1]), 
+                                         mode='trilinear', align_corners=False)
+        mov_interpolated = F.interpolate(self.mov_data.unsqueeze(0), scale_factor=(self.dims[0]/self.mov_data.shape[1]), 
+                                         mode='trilinear', align_corners=False)
 
         self.data = torch.cat((fix_interpolated.squeeze(0), mov_interpolated.squeeze(0)), 0)
 
