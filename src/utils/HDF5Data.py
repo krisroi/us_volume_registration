@@ -7,18 +7,35 @@ import os
 
 
 class LoadHDF5File():
-    """Loading .h5 files and returns them in a 2-channel tensor, one fixed- and one moving channel.
+    """Loading .h5 files and returns them in separate tensors, one fixed and one moving.
         Args:
             filepath (string): absolute path to .h5 files
             fix_file (string): relative path to specific fixed file
             mov_file (string): relative path to specific moving file
             fix_vol_no (string): specific volume to extract from the fixed file
             mov_vol_no (string): specific volume to extract from the moving file
+            dims (tuple): tuple containing the biggest x-, y- and z-dimensions in the dataset
         Returns:
-            A tensor that contains both a fixed- and a moving image.
-            The returned tensor is on the form [2, x-size, y-size, z-size].
-            volume_data.data[0, :] returns the fixed image.
-            volume_data.data[1, :] returns the moving image.
+            Two tensors containing fixed and moving data.
+            The returned tensors are on the form [1, x-size, y-size, z-size].
+        Use example:
+            hdf_data = LoadHDF5File(data_files, fix_set, mov_set, fix_vols, mov_vols, dims) #Loads hdf-data
+            hdf_data.normalize() #Normalizes hdf-data
+            hdf_data.to(device) #Cast hdf-data to specified device
+
+            hdf_data._interpolate() #Interpolate fixed and moving data
+
+            hdf_data.fix_data #Returns fixed hdf_data
+            hdf_data.mov_data #Returns moving hdf_data
+
+        Note:
+            Tensors should be concatenated before further usage, like:
+
+            hdf_data._concatenate()
+
+            Then the resulting volume data is accesed through
+
+            hdf_data.data
     """
 
     def __init__(self, filepath, fix_file, mov_file, fix_vol_no, mov_vol_no, dims):
@@ -57,13 +74,21 @@ class LoadHDF5File():
 
         return fix_data, mov_data
 
-    def interpolate_and_concatenate(self):
-        fix_interpolated = F.interpolate(self.fix_data.unsqueeze(0), scale_factor=(self.dims[0]/self.fix_data.shape[1]), 
-                                         mode='trilinear', align_corners=False)
-        mov_interpolated = F.interpolate(self.mov_data.unsqueeze(0), scale_factor=(self.dims[0]/self.mov_data.shape[1]), 
-                                         mode='trilinear', align_corners=False)
+    def _interpolate(self):
+        '''Scaled interpolation of hdf-data. Interpolates the x-dimension to the biggest x-dimension in the dataset
+            while keeping the dimension-ratio the same.
+        '''
+        self.fix_data = F.interpolate(self.fix_data.unsqueeze(0), scale_factor=(self.dims[0] / self.fix_data.shape[1]),
+                                      mode='trilinear', align_corners=False)
+        self.mov_data = F.interpolate(self.mov_data.unsqueeze(0), scale_factor=(self.dims[0] / self.mov_data.shape[1]),
+                                      mode='trilinear', align_corners=False)
+        self.fix_data = self.fix_data.squeeze(1)
+        self.mov_data = self.mov_data.squeeze(1)
 
-        self.data = torch.cat((fix_interpolated.squeeze(0), mov_interpolated.squeeze(0)), 0)
+    def _concatenate(self):
+        '''Concatenate fixed- and moving data for further usage.
+        '''
+        self.data = torch.cat((self.fix_data, self.mov_data), 0)
 
     def normalize(self):
         """ Normalizes pixel data in the .h5 files
