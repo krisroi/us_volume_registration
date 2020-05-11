@@ -71,7 +71,7 @@ class GetDatasetInformation():
                 y_dim = int(dim[1])
             if int(dim[2]) > z_dim:
                 z_dim = int(dim[2])
-                
+
         return tuple((x_dim, y_dim, z_dim))
 
     def load_dataset(self):
@@ -179,7 +179,7 @@ def generate_train_patches(data_information, data_files, filter_type,
 
     print('Creating patches ... ')
     print('-----------------------------------------------------------------------------------------------------------------')
-    print('pid  filename                           vol     patches    Shapes prior to upsampling    Shapes after upsampling')
+    print('pid  filename                           vol     patches    Shapes prior to concat    Shapes after concat')
     print('-----------------------------------------------------------------------------------------------------------------')
 
     for set_idx in range(len(fix_set)):
@@ -189,12 +189,13 @@ def generate_train_patches(data_information, data_files, filter_type,
 
         hdf_data = LoadHDF5File(data_files, fix_set[set_idx], mov_set[set_idx],
                                 fix_vols[set_idx], mov_vols[set_idx], dims)
-        
+
         hdf_data.normalize()
         hdf_data.to(device)
 
-        hdf_data.interpolate_and_concatenate()
-        
+        # hdf_data._interpolate()
+        hdf_data._concatenate()
+
         '''
         fig, ax = plt.subplots(2, 2, squeeze=False, figsize=(40, 40))
 
@@ -281,12 +282,11 @@ def generate_prediction_patches(DATA_ROOT, data_files, frame, filter_type, patch
                             fix_vols, mov_vols, dims)
     hdf_data.normalize()
     hdf_data.to(device)
-    
-    hdf_data.interpolate_and_concatenate()
-    
-    vol_data = torch.cat((hdf_data.fix_data, hdf_data.mov_data), 0)
 
-    patched_vol_data, loc = create_patches(vol_data, patch_size, stride, device)
+    # hdf_data._interpolate()
+    hdf_data._concatenate()
+
+    patched_vol_data, loc = create_patches(hdf_data.data, patch_size, stride, device)
 
     fixed_patches = patched_vol_data[:, 0, :].to(device)
     moving_patches = patched_vol_data[:, 1, :].to(device)
