@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class NCC(nn.Module):
+class MaskedNCC(nn.Module):
     r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together
         with a regularization function to compute the loss.
 
@@ -23,21 +23,23 @@ class NCC(nn.Module):
     """
 
     def __init__(self, useRegularization, device):
-        super(NCC, self).__init__()
+        super(MaskedNCC, self).__init__()
 
         self.useRegularization = useRegularization
         self.device = device
 
     def forward(self, fixed_patch, moving_patch, predicted_theta, weight, reduction='mean'):
-        ncc = normalized_cross_correlation(fixed_patch, moving_patch, reduction)
+        ncc, mask = normalized_cross_correlation(fixed_patch, moving_patch, reduction)
         if not self.useRegularization:
             weight = 0
         L_reg = regularization_loss(predicted_theta, weight, self.device)
-        return (1 - ncc) + L_reg
+        return ((1 - ncc) + L_reg), mask
 
 
 def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
-    """Compute and return zero-ncc ([0, 1])
+    """Compute and return masked zero-ncc ([0, 1]).
+       The function creates a mask and computes zero-ncc ONLY where the
+       volumes overlap.
         Note:
             Reduction option 'None' should only be used when computing zero-ncc
             and not backpropagating loss. For backpropagation, the loss-matrix
@@ -46,14 +48,25 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     fixed = (fixed_patch[:])
     moving = (moving_patch[:])
 
-    fixed_variance = torch.sqrt(torch.sum(torch.pow(fixed, 2), (2, 3, 4)))
-    moving_variance = torch.sqrt(torch.sum(torch.pow(moving, 2), (2, 3, 4)))
+    mask = create_mask(fixed, moving)
 
-    num = torch.sum(torch.mul(fixed, moving), (2, 3, 4))
-    den = torch.mul(fixed_variance, moving_variance)
+    N = torch.sum(torch.ones_like(mask), (2, 3, 4), keepdim=True)
 
-    alpha = 1.0e-16  # small number to prevent zero-division
-    ncc = torch.div(num, (den + alpha))
+    masked_fixed_mean = torch.div(torch.mean(fixed, axis=(2, 3, 4), keepdim=True), N)
+    masked_moving_mean = torch.div(torch.mean(moving, axis=(2, 3, 4), keepdim=True), N)
+
+    fixed_variance = torch.div(torch.sum(torch.pow((fixed - masked_fixed_mean), 2),
+                                         axis=(2, 3, 4), keepdim=True), N)
+    moving_variance = torch.div(torch.sum(torch.pow((moving - masked_moving_mean), 2),
+                                          axis=(2, 3, 4), keepdim=True), N)
+
+    numerator = torch.mul((fixed - masked_fixed_mean) * mask, (moving - masked_moving_mean) * mask)
+    denominator = torch.sqrt(fixed_variance * moving_variance)
+
+    epsilon = 1e-08
+
+    pixel_ncc = torch.div(numerator, (denominator + epsilon))
+    ncc = torch.mean(pixel_ncc, axis=(2, 3, 4))
 
     if reduction == 'mean':
         ncc = torch.mean(ncc, dim=0)
@@ -62,7 +75,25 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     elif reduction == None:
         ncc = ncc
 
-    return ncc
+    return ncc, mask
+
+
+def create_mask(fixed_patch, moving_patch):
+    '''Creates sector-mask for ultrasound volumes
+    '''
+    fix_mask = torch.ne(fixed_patch, 0)
+    mov_mask = torch.ne(moving_patch, 0)
+
+    fix_mask = fix_mask.float()
+    mov_mask = mov_mask.float()
+
+    fix_mask = fix_mask.masked_fill(fix_mask == 0, 2)
+    mov_mask = mov_mask.masked_fill(mov_mask == 0, 3)
+
+    mask = torch.eq(fix_mask, mov_mask)
+    mask_f = mask.float()
+
+    return mask_f
 
 
 def extract(predicted_theta):
@@ -88,26 +119,3 @@ def regularization_loss(predicted_theta, weight, device):
 def determinant_loss(predicted_theta):
     IDT, A, _ = extract(predicted_theta)
     return (-1 + torch.det(A + IDT))**2
-
-
-def sector_limited_zero_ncc(fixed_volume, warped_volume):
-    """Compute and return zero-ncc ([0, 1]), only where the ultrasound sectors overlap.
-    """
-    fix_mask = torch.where(fixed_volume != 0, torch.ones(fixed_volume.shape), torch.zeros(fixed_volume.shape))
-    warp_mask = torch.where(warped_volume != 0, torch.ones(warped_volume.shape), torch.zeros(warped_volume.shape))
-
-    mask = torch.where(fix_mask == warp_mask, torch.ones(fixed_volume.shape), torch.zeros(fixed_volume.shape))
-
-    fixed = fixed_volume[:] * mask
-    warped = warped_volume[:] * mask
-
-    fixed_variance = torch.sqrt(torch.sum(torch.pow(fixed, 2), (2, 3, 4)))
-    warped_variance = torch.sqrt(torch.sum(torch.pow(warped, 2), (2, 3, 4)))
-
-    num = torch.sum(torch.mul(fixed, warped), (2, 3, 4))
-    den = torch.mul(fixed_variance, warped_variance)
-
-    alpha = 1.0e-16  # small number to prevent zero-division
-    ncc = torch.div(num, (den + alpha))
-
-    return ncc
