@@ -12,7 +12,7 @@ import utils.parse_utils as pu
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
 from utils.data import GetDatasetInformation
-from losses.ncc_loss import normalized_cross_correlation, sector_limited_zero_ncc
+from losses.ncc_loss import normalized_cross_correlation
 from config_parser import UserConfigParser
 
 
@@ -56,7 +56,7 @@ def main():
     moving_image = dataset.mov_files
     fix_vol = dataset.fix_vols
     mov_vol = dataset.mov_vols
-    
+
     dims = dataset.get_biggest_dimensions()
 
     voxelsize = 7.000003e-4
@@ -64,10 +64,10 @@ def main():
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.ft))
     theta_proc_path = os.path.join(user_config.PROJECT_ROOT, user_config.PROCRUSTES, 'results', args.glob)
 
-    vol_data = LoadHDF5File(data_files, 
-                            fixed_image[args.PSN - 1], moving_image[args.PSN - 1], 
+    vol_data = LoadHDF5File(data_files,
+                            fixed_image[args.PSN - 1], moving_image[args.PSN - 1],
                             fix_vol[args.PSN - 1], mov_vol[args.PSN - 1], dims=None)
-    
+
     fixed_volume = vol_data.fix_data.unsqueeze(0)
     moving_volume = vol_data.mov_data.unsqueeze(0)
 
@@ -89,24 +89,24 @@ def main():
 
     warped_volume = affine_transform(moving_volume, global_theta)
 
-    pre_loss = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
-    post_loss = sector_limited_zero_ncc(fixed_volume, warped_volume)
-    
+    pre_loss, pre_mask = normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
+    post_loss, post_mask = normalized_cross_correlation(fixed_volume, warped_volume, reduction=None)
+
     print('\n')
     print('{}'.format('Post alignment values'))
     print('*' * 100)
     print('Prediction set' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' +
           'Improvement' + ' | ' + 'Percentwice imp.')
-    print('{:<8}{:>20}{:>20}{:>18}{:>13}%'.format(args.PSN, 
-                                                   round(pre_loss.item(), 4), 
-                                                   round(post_loss.item(), 4), 
-                                                   round((post_loss.item() - pre_loss.item()), 4),
-                                                   round(100 - ((pre_loss.item() / post_loss.item()) * 100), 2)))
+    print('{:<8}{:>20}{:>20}{:>18}{:>13}%'.format(args.PSN,
+                                                  round(pre_loss.item(), 4),
+                                                  round(post_loss.item(), 4),
+                                                  round((post_loss.item() - pre_loss.item()), 4),
+                                                  round(100 - ((pre_loss.item() / post_loss.item()) * 100), 2)))
 
-    plot_volumes(fixed_volume, moving_volume, warped_volume)
+    plot_volumes(fixed_volume, moving_volume, warped_volume, pre_mask, post_mask)
 
 
-def plot_volumes(fixed_volume, moving_volume, warped_volume):
+def plot_volumes(fixed_volume, moving_volume, warped_volume, orig_mask, sect_mask):
 
     x_range = 3
     y_range = 2
@@ -124,6 +124,14 @@ def plot_volumes(fixed_volume, moving_volume, warped_volume):
     warped_x = warped_volume[0, 0, warped_volume.shape[2] // 2]
     warped_y = warped_volume[0, 0, :, warped_volume.shape[3] // 2]
     warped_z = warped_volume[0, 0, :, :, warped_volume.shape[4] // 2]
+
+    orig_mask_x = orig_mask[0, 0, orig_mask.shape[2] // 2]
+    orig_mask_y = orig_mask[0, 0, :, orig_mask.shape[3] // 2]
+    orig_mask_z = orig_mask[0, 0, :, :, orig_mask.shape[4] // 2]
+
+    sect_mask_x = sect_mask[0, 0, sect_mask.shape[2] // 2]
+    sect_mask_y = sect_mask[0, 0, :, sect_mask.shape[3] // 2]
+    sect_mask_z = sect_mask[0, 0, :, :, sect_mask.shape[4] // 2]
 
     for i in range(y_range):
         for j in range(x_range):
@@ -151,6 +159,14 @@ def plot_volumes(fixed_volume, moving_volume, warped_volume):
         ax[i, 2].imshow(fixed_z, origin='left', cmap='copper', alpha=args.calph)
         ax[0, 2].imshow(moving_z, origin='left', cmap='gray', alpha=args.galph)
         ax[1, 2].imshow(warped_z, origin='left', cmap='gray', alpha=args.galph)
+
+        ax[0, 0].imshow(orig_mask_x, origin='left', cmap='cool', alpha=0.1)
+        ax[0, 1].imshow(orig_mask_y, origin='left', cmap='cool', alpha=0.1)
+        ax[0, 2].imshow(orig_mask_z, origin='left', cmap='cool', alpha=0.1)
+
+        ax[1, 0].imshow(sect_mask_x, origin='left', cmap='cool', alpha=0.1)
+        ax[1, 1].imshow(sect_mask_y, origin='left', cmap='cool', alpha=0.1)
+        ax[1, 2].imshow(sect_mask_z, origin='left', cmap='cool', alpha=0.1)
 
     if args.save is not None:
         output_dir = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output', 'figures')
