@@ -28,7 +28,7 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import NCC, normalized_cross_correlation, sector_limited_zero_ncc
+from losses.ncc_loss import MaskedNCC, normalized_cross_correlation
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
@@ -191,7 +191,7 @@ def main():
 
     #scripted_model = torch.jit.script(model)
 
-    criterion = NCC(useRegularization=False, device=device)
+    criterion = MaskedNCC(useRegularization=False, device=device)
 
     fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
                                                                      data_files=data_files,
@@ -216,7 +216,7 @@ def main():
 
     sampleNumber = 1  # Hold index for writing correctly to .h5 file
     saveData = SaveHDF5File(user_config.DATA_ROOT)  # Initialize file for saving patches
-    
+
     pre_ncc = 0
     post_ncc = 0
 
@@ -261,25 +261,25 @@ def main():
 
             sampleNumber += user_config.batch_size
 
-            preWarpNcc = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
-            postWarpNcc = sector_limited_zero_ncc(fixed_batch.cpu(), warped_batch.cpu())
+            preWarpNcc, _ = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
+            postWarpNcc, _ = normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
 
             print_patchloss(preWarpNcc, postWarpNcc)
-            
+
             pre_ncc += torch.sum(preWarpNcc, 0)
             post_ncc += torch.sum(postWarpNcc, 0)
-            
+
         pre_av = torch.div(pre_ncc, fixed_patches.shape[0]).item()
         post_av = torch.div(post_ncc, fixed_patches.shape[0]).item()
-        
+
         print('\n')
         print('{}'.format('Averaged values'))
         print('*' * 100)
         print('Number of patches' + ' | ' + 'NCC before warping' + ' | ' + 'NCC after warping' + ' | ' +
-          'Improvement' + ' | ' + 'Percentwice imp.')
-        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(fixed_patches.shape[0], 
-                                                       round(pre_av, 4), 
-                                                       round(post_av, 4), 
+              'Improvement' + ' | ' + 'Percentwice imp.')
+        print('{:<12}{:>20}{:>20}{:>20}{:>13}%'.format(fixed_patches.shape[0],
+                                                       round(pre_av, 4),
+                                                       round(post_av, 4),
                                                        round((post_av - pre_av), 4),
                                                        round(100 - ((pre_av / post_av) * 100), 2)))
 

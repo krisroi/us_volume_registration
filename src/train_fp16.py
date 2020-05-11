@@ -33,8 +33,8 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import NCC
-from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps
+from losses.ncc_loss import MaskedNCC
+from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps, plotTrainPredictions
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
 from utils.data import CreateDataset, GetDatasetInformation, generate_train_patches, shuffle_patches
@@ -224,7 +224,7 @@ def main():
 
     print('Number of network parameters: ', count_parameters(model))
 
-    criterion = NCC(useRegularization=args.ur, device=device).to(device)
+    criterion = MaskedNCC(useRegularization=args.ur, device=device).to(device)
 
     # Creating loss-storage variables
     epoch_train_loss = torch.zeros(args.epochs).to(device)
@@ -299,8 +299,8 @@ def main():
                                            criterion=criterion,
                                            weight=weight,
                                            device=device)
-            
-            #scheduler.step()
+
+            # scheduler.step()
 
             epoch_train_loss[epoch] = torch.mean(training_loss)
             epoch_validation_loss[epoch] = torch.mean(validation_loss)
@@ -362,7 +362,7 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
         if args.register_hook:
             get_hook(model)
 
-        loss = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
+        loss, _ = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
         training_loss[batch_idx] = loss.item()
 
         if args.precision == 'amp' and not apexImportError:
@@ -405,7 +405,7 @@ def validate(fixed_patches, moving_patches, epoch, model, criterion, weight, dev
         predicted_theta = model(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
+        loss, _ = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
         validation_loss[batch_idx] = loss.item()
 
         printer = progress_printer((batch_idx + 1) / len(validation_loader))
