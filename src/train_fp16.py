@@ -3,6 +3,7 @@ import math
 import csv
 import argparse
 import platform
+import copy
 
 import torch
 import torch.optim as optim
@@ -152,12 +153,13 @@ def main():
     #cudnn.benchmark = True
 
     # Disable performance enhancement for reproducibility
-    #torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     # Manual seed for reproducibilty
     torch.manual_seed(0)
     np.random.seed(0)
+    torch.cuda.manual_seed(0)
 
     # Choose GPU device (0 or 1 available, -1 masks both GPUs and runs the program on CPU)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -210,19 +212,18 @@ def main():
         encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
     else:
         encoder = _Encoder(**model_config['ENCODER_CONFIG'])
+        
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
 
     model = USARNet(encoder, affineRegression).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
-
+    
     # Decide to do FP32 training or mixed precision
     if args.precision == 'amp' and not apexImportError:
         model, optimizer = amp.initialize(model, optimizer)
     elif args.precision == 'amp' and apexImportError:
-        print('Error: Apex not found, cannot go ahead with mixed precision training. Continuing with full precision.')
-
-    print('Number of network parameters: ', count_parameters(model))
+        print('Error: Apex not found, cannot go ahead' 
+              'with mixed precision training. Continuing with full precision.')
 
     criterion = MaskedNCC(useRegularization=args.ur, device=device).to(device)
 
@@ -242,6 +243,10 @@ def main():
                                                            )
 
     print('Total number of patches: ', fixed_patches.shape[0])
+    
+    # Save initial state for cross-validation
+    model_init_state = copy.deepcopy(model.state_dict())
+    optim_init_state = copy.deepcopy(optimizer.state_dict())
 
     print('Initializing training')
     print('\n')
@@ -249,6 +254,13 @@ def main():
     train_starttime = datetime.now()
 
     for fold in range(args.cross_validate):
+        
+        model.load_state_dict(model_init_state)
+        optimizer.load_state_dict(optim_init_state)
+
+        print('Number of network parameters: ', count_parameters(model))
+        
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
 
         print('Fold: {}/{}'.format(fold + 1, args.cross_validate))
         print('\n')
@@ -277,7 +289,7 @@ def main():
 
             # Weight for regularization of loss function.
             weight = 12 / (2 + math.exp(epoch / 2))
-
+            print('Current LR : {}'.format(scheduler.get_lr()))
             with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
 
                 model.train()
@@ -300,7 +312,7 @@ def main():
                                            weight=weight,
                                            device=device)
 
-            # scheduler.step()
+            scheduler.step()
 
             epoch_train_loss[epoch] = torch.mean(training_loss)
             epoch_validation_loss[epoch] = torch.mean(validation_loss)
@@ -372,6 +384,9 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
             loss.backward()
 
         optimizer.step()
+        
+        del fixed_batch
+        del moving_batch
 
         printer = progress_printer(batch_idx / len(train_loader))
         print(printer + ' Training epoch {:2}/{} (steps: {})'.format(epoch + 1, args.epochs, len(train_loader)), end='\r', flush=True)
@@ -423,7 +438,7 @@ def network_config():
                       'memory_efficient': args.memory_efficient}
 
     # Calculating spatial resolution of the output of the encoder
-    spatial_resolution = (args.patch_size // ((2**len(user_config.encoder_config))))**3
+    spatial_resolution = (args.patch_size // ((2**(len(user_config.encoder_config)))))**3
     num_feature_maps = user_config.num_init_features * 2**(len(user_config.encoder_config) - 1) + 1
 
     INPUT_SHAPE = spatial_resolution * num_feature_maps * 2
