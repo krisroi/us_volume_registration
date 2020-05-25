@@ -34,7 +34,7 @@ class _DSConv(nn.Module):
             prev_features = [x]
         else:
             prev_features = x
-        out = torch.cat(x, 1)
+        out = torch.cat(prev_features, 1)
         out = self.dwConv(out)
         out = self.relu(self.norm(self.conv(out)))
         return out
@@ -122,7 +122,7 @@ class _PLSNet(nn.Module):
             DRD_BLOCK = _DilatedResidualDenseBlock(num_layers=num_layers,
                                                    num_input_features=num_features,
                                                    growth_rate=growth_rate)
-            self.drd_module.add_module('DRD_BLOCK%d' % (i + 1), DRD_BLOCK)
+            self.drd_module.add_module('DRD_BLOCK%d' % ((i + 1)), DRD_BLOCK)
 
             if i != len(encoder_config) - 1:
 
