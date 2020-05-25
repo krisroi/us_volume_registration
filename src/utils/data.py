@@ -137,6 +137,8 @@ def shuffle_patches(fixed_patches, moving_patches):
 
     print('Finished shuffling patches')
     print('\n')
+    
+    del shuffle_loader
 
     return shuffled_fixed_patches, shuffled_moving_patches
 
@@ -193,7 +195,7 @@ def generate_train_patches(data_information, data_files, filter_type,
         hdf_data.normalize()
         hdf_data.to(device)
 
-        # hdf_data._interpolate()
+        #hdf_data._interpolate()
         hdf_data._concatenate()
 
         '''
@@ -232,6 +234,7 @@ def generate_train_patches(data_information, data_files, filter_type,
                                                            hdf_data.mov_data.shape, hdf_data.data[1, :].shape))
         print('-----------------------------------------')
 
+        del hdf_data
         del patched_vol_data
 
     print('Finished creating patches')
