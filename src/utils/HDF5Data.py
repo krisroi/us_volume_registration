@@ -71,6 +71,9 @@ class LoadHDF5File():
 
             fix_data[0] = torch.from_numpy(fix_vol).float()
             mov_data[0] = torch.from_numpy(mov_vol).float()
+            
+            del fix_vol
+            del mov_vol
 
         return fix_data, mov_data
 
