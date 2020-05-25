@@ -62,9 +62,9 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
 
     numerator = torch.mul((fixed - masked_fixed_mean) * mask, (moving - masked_moving_mean) * mask)
     denominator = torch.sqrt(fixed_variance * moving_variance)
-
+    
     epsilon = 1e-08
-
+    
     pixel_ncc = torch.div(numerator, (denominator + epsilon))
     ncc = torch.mean(pixel_ncc, axis=(2, 3, 4))
 
@@ -116,6 +116,6 @@ def regularization_loss(predicted_theta, weight, device):
     return weight * ((torch.norm((A - IDT.to(device)), p='fro'))**2 + (torch.norm(b, p=2))**2)
 
 
-def determinant_loss(predicted_theta):
+def determinant_loss(predicted_theta, device):
     IDT, A, _ = extract(predicted_theta)
-    return (-1 + torch.det(A + IDT))**2
+    return (-1 + torch.det(A + IDT.to(device)))**2
