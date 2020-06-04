@@ -55,15 +55,15 @@ class _DilatedResidualDenseBlock(nn.ModuleDict):
 
     def __init__(self, num_layers, num_input_features, growth_rate):
         super(_DilatedResidualDenseBlock, self).__init__()
-
+        
         self.intermediate = nn.ModuleDict()
-
+        
         for i in range(num_layers):
             layer = _Conv(
                 num_input_features=num_input_features + i * growth_rate,
                 growth_rate=growth_rate,
-                padding=(i + 1),
-                dilation=(i + 1)
+                padding=1,
+                dilation=1
             )
             self.intermediate.add_module('ConvLayer%d' % (i + 1), layer)
 
@@ -104,10 +104,8 @@ class _Encoder(nn.Module):
         self.drd_module = nn.ModuleDict()
         self.strided_conv_module = nn.ModuleDict()
 
-        # Initial StridedDSConv
-        self.add_module('conv0', nn.Conv3d(1, 1, kernel_size=3, stride=1, padding=1,
-                                           groups=1, bias=False))
-        self.add_module('conv1', nn.Conv3d(1, num_init_features, kernel_size=1,
+        # Initial StridedConv
+        self.add_module('conv0', nn.Conv3d(1, num_init_features, kernel_size=3, padding=1,
                                            stride=2, bias=False))
         self.add_module('norm', nn.BatchNorm3d(num_init_features))
         self.add_module('relu', nn.ReLU(inplace=True))
@@ -156,7 +154,7 @@ class _Encoder(nn.Module):
         origInput = x
 
         # Initial strided conv layer
-        out = self.relu(self.norm(self.conv1(self.conv0(x))))
+        out = self.relu(self.norm(self.conv0(x)))
 
         # Counter for finding correct DRD-block
         drd_key_num = 0
@@ -185,3 +183,7 @@ class _Encoder(nn.Module):
 
         out = self.relu(out)
         return out
+    
+if __name__ == '__main__':
+    net = _Encoder((4,4,4,4,4), 8, 8)
+    print(net)

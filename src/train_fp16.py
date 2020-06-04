@@ -34,7 +34,7 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import MaskedNCC
+from losses.ncc_loss import UnmaskedNCC
 from utils.utility_functions import progress_printer, count_parameters, printFeatureMaps, plotFeatureMaps, plotTrainPredictions
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File
@@ -211,21 +211,23 @@ def main():
     if args.enc == 'PLS':
         encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
     else:
+        print('Running base encoder')
         encoder = _Encoder(**model_config['ENCODER_CONFIG'])
         
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
 
     model = USARNet(encoder, affineRegression).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-07)
     
     # Decide to do FP32 training or mixed precision
     if args.precision == 'amp' and not apexImportError:
-        model, optimizer = amp.initialize(model, optimizer)
+        print('Running mixed precision training')
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
     elif args.precision == 'amp' and apexImportError:
         print('Error: Apex not found, cannot go ahead' 
               'with mixed precision training. Continuing with full precision.')
 
-    criterion = MaskedNCC(useRegularization=args.ur, device=device).to(device)
+    criterion = UnmaskedNCC(useRegularization=args.ur, device=device).to(device)
 
     # Creating loss-storage variables
     epoch_train_loss = torch.zeros(args.epochs).to(device)
@@ -247,6 +249,7 @@ def main():
     # Save initial state for cross-validation
     model_init_state = copy.deepcopy(model.state_dict())
     optim_init_state = copy.deepcopy(optimizer.state_dict())
+    amp_init_state = copy.deepcopy(amp.state_dict())
 
     print('Initializing training')
     print('\n')
@@ -255,12 +258,15 @@ def main():
 
     for fold in range(args.cross_validate):
         
+        current_best = 1
+        
         model.load_state_dict(model_init_state)
         optimizer.load_state_dict(optim_init_state)
+        amp.load_state_dict(amp_init_state)
 
         print('Number of network parameters: ', count_parameters(model))
         
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
         print('Fold: {}/{}'.format(fold + 1, args.cross_validate))
         print('\n')
@@ -290,17 +296,17 @@ def main():
             # Weight for regularization of loss function.
             weight = 12 / (2 + math.exp(epoch / 2))
             print('Current LR : {}'.format(scheduler.get_lr()))
-            with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
+            #with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
 
-                model.train()
-                training_loss = train(fixed_patches=fix_train_patches,
-                                      moving_patches=mov_train_patches,
-                                      epoch=epoch,
-                                      model=model,
-                                      criterion=criterion,
-                                      optimizer=optimizer,
-                                      weight=weight,
-                                      device=device)
+            model.train()
+            training_loss = train(fixed_patches=fix_train_patches,
+                                  moving_patches=mov_train_patches,
+                                  epoch=epoch,
+                                  model=model,
+                                  criterion=criterion,
+                                  optimizer=optimizer,
+                                  weight=weight,
+                                  device=device)
 
             with torch.no_grad():
                 model.eval()
@@ -311,18 +317,24 @@ def main():
                                            criterion=criterion,
                                            weight=weight,
                                            device=device)
+                
+            #print(torch.cuda.memory_summary(device=device, abbreviated=False))
 
             scheduler.step()
 
             epoch_train_loss[epoch] = torch.mean(training_loss)
             epoch_validation_loss[epoch] = torch.mean(validation_loss)
+            
+            if torch.mean(validation_loss) < current_best:
+                current_best = torch.mean(validation_loss)
+                print('Improved validation, saving model')
 
-            # Save model
-            model_info = {'model_state_dict': model.state_dict(),
-                          'optimizer_state_dict': optimizer.state_dict(),
-                          'epoch': epoch
-                          }
-            torch.save(model_info, (model_name + '_fold{}.pt'.format(fold + 1)))
+                # Save model
+                model_info = {'model_state_dict': model.state_dict(),
+                              'optimizer_state_dict': optimizer.state_dict(),
+                              'epoch': epoch
+                              }
+                torch.save(model_info, (model_name + '_fold{}.pt'.format(fold + 1)))
 
             print('Epoch: {}/{} \t Training_loss: {} \t Validation loss: {}'
                   .format(epoch + 1, args.epochs, epoch_train_loss[epoch], epoch_validation_loss[epoch]))
@@ -371,22 +383,20 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
         predicted_theta = model(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        if args.register_hook:
-            get_hook(model)
-
-        loss, _ = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
-        training_loss[batch_idx] = loss.item()
+        loss, cross_corr = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
 
         if args.precision == 'amp' and not apexImportError:
             with amp.scale_loss(loss, optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
             loss.backward()
-
+            
         optimizer.step()
-        
-        del fixed_batch
-        del moving_batch
+            
+        training_loss[batch_idx] = cross_corr.item()
+            
+        if args.register_hook:
+            get_hook(model)
 
         printer = progress_printer(batch_idx / len(train_loader))
         print(printer + ' Training epoch {:2}/{} (steps: {})'.format(epoch + 1, args.epochs, len(train_loader)), end='\r', flush=True)
@@ -420,8 +430,8 @@ def validate(fixed_patches, moving_patches, epoch, model, criterion, weight, dev
         predicted_theta = model(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
-        loss, _ = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
-        validation_loss[batch_idx] = loss.item()
+        loss, cross_corr = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
+        validation_loss[batch_idx] = cross_corr.item()
 
         printer = progress_printer((batch_idx + 1) / len(validation_loader))
         print(printer + ' Validating epoch {:2}/{} (steps: {})'.format(epoch + 1, args.epochs, len(validation_loader)), end='\r')

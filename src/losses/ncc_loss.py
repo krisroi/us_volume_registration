@@ -29,14 +29,88 @@ class MaskedNCC(nn.Module):
         self.device = device
 
     def forward(self, fixed_patch, moving_patch, predicted_theta, weight, reduction='mean'):
-        ncc, mask = normalized_cross_correlation(fixed_patch, moving_patch, reduction)
+        ncc, mask = masked_normalized_cross_correlation(fixed_patch, moving_patch, reduction)
         if not self.useRegularization:
             weight = 0
         L_reg = regularization_loss(predicted_theta, weight, self.device)
-        return ((1 - ncc) + L_reg), mask
+        return ((1 - ncc) + L_reg), (1 - ncc), mask
+    
+class UnmaskedNCC(nn.Module):
+    r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together
+        with a regularization function to compute the loss.
+
+    Args:
+        fixed_patch (tensor): fixed patch with shape [B, C, D, H, W]
+        moving_patch (tensor): moving patch with shape [B, C, D, H, W]
+        predicted_theta (tensor): predicted theta from network output
+        weight (float): epoch dependent weight factor
+        reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum', 'none')
+
+    Examples::
+        >>> criterion = NCC(useRegularization)
+        >>> fixed_patch = torch.randn(B, C, D, H, W)
+        >>> moving_patch = torch.randn(B, C, D, H, W)
+        >>> predicted_theta = net(fixed_patch, moving_patch)
+        >>> predicted_deform = affine_transform(..)
+        >>> loss = criterion(fixed_patch, predicted_deform, predicted_theta, weight, reduction(opt))
+    """
+
+    def __init__(self, useRegularization, device):
+        super(UnmaskedNCC, self).__init__()
+
+        self.useRegularization = useRegularization
+        self.device = device
+
+    def forward(self, fixed_patch, moving_patch, predicted_theta, weight, reduction='mean'):
+        ncc, mask = unmasked_normalized_cross_correlation(fixed_patch, moving_patch, reduction)
+        if not self.useRegularization:
+            weight = 0
+        L_reg = regularization_loss(predicted_theta, weight, self.device)
+        return ((1 - ncc) + L_reg), (1 - ncc)
+    
+def unmasked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
+    """Compute and return unmasked zero-ncc ([0, 1]).
+        Note:
+            Reduction option 'None' should only be used when computing zero-ncc
+            and not backpropagating loss. For backpropagation, the loss-matrix
+            needs to be reduced to a single item.
+    """
+    fixed = (fixed_patch[:])
+    moving = (moving_patch[:])
+    
+    mask = create_mask(fixed, fixed)
+
+    N = torch.sum(torch.ones_like(mask), (2, 3, 4), keepdim=True)
+    
+    fixed_mean = torch.mean(fixed, axis=(2, 3, 4), keepdim=True)
+    moving_mean = torch.mean(moving, axis=(2, 3, 4), keepdim=True)
+
+    N_f = torch.sum(torch.ones_like(fixed), axis=(2, 3, 4), keepdim=True)
+    N_m = torch.sum(torch.ones_like(moving), axis=(2, 3, 4), keepdim=True)
+    fixed_variance = torch.div(torch.sum(torch.pow((fixed - fixed_mean), 2),
+                                         axis=(2, 3, 4), keepdim=True), N_f)
+    moving_variance = torch.div(torch.sum(torch.pow((moving - moving_mean), 2),
+                                          axis=(2, 3, 4), keepdim=True), N_m)
+
+    numerator = (fixed - fixed_mean) * (moving - moving_mean)
+    denominator = torch.sqrt(fixed_variance * moving_variance)
+    
+    epsilon = 1e-07
+    
+    pixel_ncc = torch.div(numerator, (denominator + epsilon))
+    ncc = torch.mean(pixel_ncc, axis=(2, 3, 4))
+
+    if reduction == 'mean':
+        ncc = torch.mean(ncc, dim=0)
+    elif reduction == 'sum':
+        ncc = torch.sum(ncc, dim=0)
+    elif reduction == None:
+        ncc = ncc
+
+    return ncc, mask
 
 
-def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
+def masked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     """Compute and return masked zero-ncc ([0, 1]).
        The function creates a mask and computes zero-ncc ONLY where the
        volumes overlap.
@@ -55,9 +129,9 @@ def normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     masked_fixed_mean = torch.div(torch.mean(fixed, axis=(2, 3, 4), keepdim=True), N)
     masked_moving_mean = torch.div(torch.mean(moving, axis=(2, 3, 4), keepdim=True), N)
 
-    fixed_variance = torch.div(torch.sum(torch.pow((fixed - masked_fixed_mean), 2),
+    fixed_variance = torch.div(torch.sum(torch.pow((fixed - masked_fixed_mean)*mask, 2),
                                          axis=(2, 3, 4), keepdim=True), N)
-    moving_variance = torch.div(torch.sum(torch.pow((moving - masked_moving_mean), 2),
+    moving_variance = torch.div(torch.sum(torch.pow((moving - masked_moving_mean)*mask, 2),
                                           axis=(2, 3, 4), keepdim=True), N)
 
     numerator = torch.mul((fixed - masked_fixed_mean) * mask, (moving - masked_moving_mean) * mask)

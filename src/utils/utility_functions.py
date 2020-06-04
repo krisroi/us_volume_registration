@@ -119,7 +119,7 @@ def printFeatureMaps(self, input, output):
     #plotFeatureMaps(output, className)
 
 
-def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROOT, PROJ_NAME, mask, savefig=False, copperAlpha=1, grayAlpha=0.6):
+def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROOT, PROJ_NAME, pre_mask, post_mask, savefig=False, copperAlpha=1, grayAlpha=0.6):
     batch_size = fixed_batch.shape[0]
     warped_batch = affine_transform(moving_batch, predicted_theta)
 
@@ -160,9 +160,13 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 warped_y = warped_batch[count, 0, :, warped_batch.shape[3] // 2]
                 warped_z = warped_batch[count, 0, :, :, warped_batch.shape[4] // 2]
                 
-                mask_x = mask[count, 0, mask.shape[2] // 2]
-                mask_y = mask[count, 0, :, mask.shape[3] // 2]
-                mask_z = mask[count, 0, :, :, mask.shape[4] // 2]
+                pre_mask_x = pre_mask[count, 0, pre_mask.shape[2] // 2]
+                pre_mask_y = pre_mask[count, 0, :, pre_mask.shape[3] // 2]
+                pre_mask_z = pre_mask[count, 0, :, :, pre_mask.shape[4] // 2]
+                
+                post_mask_x = post_mask[count, 0, post_mask.shape[2] // 2]
+                post_mask_y = post_mask[count, 0, :, post_mask.shape[3] // 2]
+                post_mask_z = post_mask[count, 0, :, :, post_mask.shape[4] // 2]
 
                 # Plot x-slixed predictions
                 ax_x[0, j].imshow(fixed_x, origin='left', cmap='copper', alpha=copperAlpha)
@@ -172,7 +176,8 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_x[0, j].title.set_text('No alignment')
                 ax_x[1, j].title.set_text('Predicted alignment')
                 
-                ax_x[1, j].imshow(mask_x, origin='left', cmap='cool', alpha=0.1)
+                ax_x[0, j].imshow(pre_mask_x, origin='left', cmap='cool', alpha=0.1)
+                ax_x[1, j].imshow(post_mask_x, origin='left', cmap='cool', alpha=0.1)
 
                 # Plot y-slixed predictions
                 ax_y[0, j].imshow(fixed_y, origin='left', cmap='copper', alpha=copperAlpha)
@@ -182,7 +187,8 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_y[0, j].title.set_text('No alignment')
                 ax_y[1, j].title.set_text('Predicted alignment')
                 
-                ax_y[1, j].imshow(mask_y, origin='left', cmap='cool', alpha=0.1)
+                ax_y[0, j].imshow(pre_mask_y, origin='left', cmap='cool', alpha=0.1)
+                ax_y[1, j].imshow(post_mask_y, origin='left', cmap='cool', alpha=0.1)
 
                 # Plot z-slixed predictions
                 ax_z[0, j].imshow(fixed_z, origin='left', cmap='copper', alpha=copperAlpha)
@@ -192,7 +198,8 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_z[0, j].title.set_text('No alignment')
                 ax_z[1, j].title.set_text('Predicted alignment')
                 
-                ax_z[1, j].imshow(mask_z, origin='left', cmap='cool', alpha=0.1)
+                ax_z[0, j].imshow(pre_mask_z, origin='left', cmap='cool', alpha=0.1)
+                ax_z[1, j].imshow(post_mask_z, origin='left', cmap='cool', alpha=0.1)
 
                 count += 1
 

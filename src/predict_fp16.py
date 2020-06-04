@@ -3,6 +3,7 @@ import csv
 import os
 import argparse
 import platform
+import time
 
 import torch
 import torch.nn as nn
@@ -28,7 +29,8 @@ from models.Encoder import _Encoder
 from models.PLSNet_Encoder import _PLSNet
 from models.AffineRegression import _AffineRegression
 from models.USARNet import USARNet
-from losses.ncc_loss import MaskedNCC, normalized_cross_correlation
+from losses.ncc_loss import MaskedNCC, masked_normalized_cross_correlation
+from losses.ncc_loss import unmasked_normalized_cross_correlation
 from utils.affine_transform import affine_transform
 from utils.HDF5Data import LoadHDF5File, SaveHDF5File
 from utils.utility_functions import progress_printer, plotPatchwisePrediction
@@ -106,7 +108,7 @@ def parse():
                         help='Plot patchwise predicted alignment')
     parser.add_argument('-ft', '--filter-type',
                         type=str, default='Bilateral_lookup',
-                        choices={"Bilateral_lookup", "NLMF_lookup"},
+                        choices={"Bilateral_lookup", "NLMF_lookup", "raw"},
                         help='Filter type for prediction')
     parser.add_argument('-pr', '--precision',
                         type=str, default='full',
@@ -124,6 +126,8 @@ def main():
 
     user_config = UserConfigParser()  # Parse main_config.ini
     args = parse()
+    
+    #torch.backends.cudnn.benchmark = True
 
     # GPU configuration
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -219,6 +223,8 @@ def main():
 
     pre_ncc = 0
     post_ncc = 0
+    
+    acc_time = 0
 
     print('Predicting')
 
@@ -229,10 +235,16 @@ def main():
         model.eval()
 
         for batch_idx, (fixed_batch, moving_batch, loc) in enumerate(prediction_loader):
-
-            model_rt = datetime.now()
+            
+            torch.cuda.synchronize()
+            model_rt = time.time()
             predicted_theta = model(fixed_batch, moving_batch)
-            print('Model runtime: ', datetime.now() - model_rt)
+            torch.cuda.synchronize()
+            end_rt = time.time()
+            print('Model runtime: ', end_rt - model_rt)
+            
+            if batch_idx > 0 and batch_idx < (len(prediction_loader) - 1):
+                acc_time += end_rt - model_rt
 
             warped_batch = affine_transform(moving_batch, predicted_theta)
 
@@ -243,14 +255,21 @@ def main():
                                    warped_batch=warped_batch,
                                    sampleNumber=sampleNumber)
 
+            sampleNumber += user_config.batch_size
+
+            preWarpNcc, pre_mask = unmasked_normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
+            postWarpNcc, post_mask = masked_normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
+            
             if args.plot_patchwise_prediction:
                 plotPatchwisePrediction(fixed_batch=fixed_batch.cpu(),
                                         moving_batch=moving_batch.cpu(),
                                         predicted_theta=predicted_theta.cpu(),
                                         PROJ_ROOT=user_config.PROJECT_ROOT,
-                                        PROJ_NAME=user_config.PROJECT_NAME
+                                        PROJ_NAME=user_config.PROJECT_NAME,
+                                        pre_mask=pre_mask.cpu(),
+                                        post_mask=post_mask.cpu()
                                         )
-
+                
             predicted_theta = predicted_theta.view(-1, 12)
             predicted_theta_tmp = predicted_theta.type(dtype)
             loc_tmp = loc.type(dtype)
@@ -259,15 +278,13 @@ def main():
                                     theta=predicted_theta_tmp.cpu().numpy()
                                     )
 
-            sampleNumber += user_config.batch_size
-
-            preWarpNcc, _ = normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
-            postWarpNcc, _ = normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
-
             print_patchloss(preWarpNcc, postWarpNcc)
 
             pre_ncc += torch.sum(preWarpNcc, 0)
             post_ncc += torch.sum(postWarpNcc, 0)
+            
+            if batch_idx > 0 and batch_idx < (len(prediction_loader) - 1):
+                av_time = acc_time / batch_idx
 
         pre_av = torch.div(pre_ncc, fixed_patches.shape[0]).item()
         post_av = torch.div(post_ncc, fixed_patches.shape[0]).item()
@@ -282,7 +299,6 @@ def main():
                                                        round(post_av, 4),
                                                        round((post_av - pre_av), 4),
                                                        round(100 - ((pre_av / post_av) * 100), 2)))
-
 
 def print_patchloss(preWarpNcc, postWarpNcc):
 
