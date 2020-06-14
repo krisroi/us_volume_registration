@@ -4,6 +4,7 @@ import csv
 import argparse
 import platform
 import copy
+import time
 
 import torch
 import torch.optim as optim
@@ -265,6 +266,8 @@ def main():
         amp.load_state_dict(amp_init_state)
 
         print('Number of network parameters: ', count_parameters(model))
+        print('Number of encoder parameters: ', count_parameters(encoder))
+        print('Number of regressor parameters: ', count_parameters(affineRegression))
         
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
@@ -297,7 +300,10 @@ def main():
             weight = 12 / (2 + math.exp(epoch / 2))
             print('Current LR : {}'.format(scheduler.get_lr()))
             #with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
-
+            
+            torch.cuda.synchronize()
+            st = time.time()
+            
             model.train()
             training_loss = train(fixed_patches=fix_train_patches,
                                   moving_patches=mov_train_patches,
@@ -307,6 +313,11 @@ def main():
                                   optimizer=optimizer,
                                   weight=weight,
                                   device=device)
+            
+            torch.cuda.synchronize()
+            et = time.time()
+            print('Train time per epoch: ', (et-st))
+            print('\n')
 
             with torch.no_grad():
                 model.eval()

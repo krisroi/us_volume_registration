@@ -128,6 +128,7 @@ def main():
     args = parse()
     
     #torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
 
     # GPU configuration
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -189,7 +190,7 @@ def main():
 
     # Decide on FP32 prediction or mixed precision
     if args.precision == 'amp' and not apexImportError:
-        model = amp.initialize(model)
+        model = amp.initialize(model, opt_level='O2')
     elif args.precision == 'amp' and apexImportError:
         print('Error: Apex not found, cannot go ahead with mixed precision prediction. Continuing with full precision.')
 
@@ -243,8 +244,7 @@ def main():
             end_rt = time.time()
             print('Model runtime: ', end_rt - model_rt)
             
-            if batch_idx > 0 and batch_idx < (len(prediction_loader) - 1):
-                acc_time += end_rt - model_rt
+            acc_time += end_rt - model_rt
 
             warped_batch = affine_transform(moving_batch, predicted_theta)
 
@@ -282,9 +282,6 @@ def main():
 
             pre_ncc += torch.sum(preWarpNcc, 0)
             post_ncc += torch.sum(postWarpNcc, 0)
-            
-            if batch_idx > 0 and batch_idx < (len(prediction_loader) - 1):
-                av_time = acc_time / batch_idx
 
         pre_av = torch.div(pre_ncc, fixed_patches.shape[0]).item()
         post_av = torch.div(post_ncc, fixed_patches.shape[0]).item()
@@ -299,6 +296,7 @@ def main():
                                                        round(post_av, 4),
                                                        round((post_av - pre_av), 4),
                                                        round(100 - ((pre_av / post_av) * 100), 2)))
+    print(acc_time)
 
 def print_patchloss(preWarpNcc, postWarpNcc):
 
