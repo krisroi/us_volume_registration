@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-from utils.affine_transform import affine_transform
-
 
 class USARNet(nn.Module):
     r"""Proposed network class for affine ultrasound to ultrasound image registration.
@@ -38,5 +36,5 @@ class USARNet(nn.Module):
 
         theta = self.affineRegression(concated)
         theta = theta.view(-1, 3, 4)
-        
+
         return theta

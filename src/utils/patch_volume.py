@@ -90,22 +90,14 @@ def create_patches(data, patch_size, stride, device):
         shape: [num_patches, num_channels, patch_size, patch_size, patch_size]
     """
 
-    # Returns zero if the dimensions of the volume is zero-dividable with the patch_size
-    #mod = len(data[0, :]) % patch_size
-    #
-    # Zero-pad the volume
-    # if mod != 0:
-    #    pad_size = patch_size - mod
-    #    padded = F.pad(data, (pad_size, 0, pad_size, 0, pad_size, 0))
-    #    data = padded
-
     data_size = data.shape
+    data = data.to(device)
 
     flat_idx = calculatePatchIdx3D(1, patch_size * torch.ones(3), data_size[1:], stride * torch.ones(3)).to(device)
     flat_idx_select = torch.zeros(flat_idx.size()).to(device)
 
     for patch_idx in range(1, flat_idx.size()[0]):
-        patch_pos = idx2pos_4D(flat_idx[patch_idx], data_size[1:])
+        patch_pos = idx2pos_4D(flat_idx[patch_idx], data_size[1:]).to(device)
 
         fixed_patch = data.data[0,
                                 patch_pos[1]:patch_pos[1] + patch_size,
@@ -116,19 +108,13 @@ def create_patches(data, patch_size, stride, device):
                                  patch_pos[2]:patch_pos[2] + patch_size,
                                  patch_pos[3]:patch_pos[3] + patch_size]
 
-        fix_on = torch.ones(fixed_patch.shape).to(device)
-        fix_off = torch.zeros(fixed_patch.shape).to(device)
-        mov_on = torch.ones(moving_patch.shape).to(device)
-        mov_off = torch.zeros(moving_patch.shape).to(device)
-
-        # Checking for non-zero data
-        fixed_on = torch.where(fixed_patch != 0, fix_on, fix_off).to(device)
-        moving_on = torch.where(moving_patch != 0, mov_on, mov_off).to(device)
+        fix_on = torch.ne(fixed_patch, 0).float()
+        mov_on = torch.ne(moving_patch, 0).float()
 
         threshold = 0.7
 
         # Selecting only the patches that contain > threshold% non-zero data
-        if (torch.sum(fixed_on) >= (patch_size**3) * threshold) & (torch.sum(moving_on) >= (patch_size**3) * threshold):
+        if (torch.sum(torch.ones_like(fix_on)) >= (patch_size**3) * threshold) & (torch.sum(torch.ones_like(mov_on)) >= (patch_size**3) * threshold):
             flat_idx_select[patch_idx] = 1
 
     flat_idx_select = flat_idx_select.bool()
@@ -153,4 +139,4 @@ def create_patches(data, patch_size, stride, device):
 
         loc[slices] = patch_pos[1:4]
 
-    return patched_data,loc
+    return patched_data, loc

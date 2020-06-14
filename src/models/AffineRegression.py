@@ -5,6 +5,9 @@ from collections import OrderedDict
 
 
 class _FullyConnectedBlock(nn.Module):
+    """Creates a fully connected "block" consisting of a fully connected layer followed
+        by batch normalization and relu activation
+    """
     def __init__(self, num_input_parameters, num_output_parameters, drop_rate):
         super(_FullyConnectedBlock, self).__init__()
 

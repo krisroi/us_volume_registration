@@ -91,9 +91,6 @@ def parse():
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-diastolic (ED) frame or end-systolic (ES) frame')
-    parser.add_argument('-enc',
-                        type=str, default=None,
-                        help='Type PLS to use the PLSNet Encoder')
     parser.add_argument('-lr',
                         type=pu.float_type, default=1e-3,
                         help='Learning rate for optimizer')
@@ -157,12 +154,12 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    # Manual seed for reproducibilty
+    # Manual seeds for reproducibilty
     torch.manual_seed(0)
     np.random.seed(0)
     torch.cuda.manual_seed(0)
 
-    # Choose GPU device (0 or 1 available, -1 masks both GPUs and runs the program on CPU)
+    # Choose GPU device (0 or 1 available, -1 masks all GPUs and runs the program on CPU)
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
@@ -185,7 +182,6 @@ def main():
     print(f"Device: {device}")
     print("=" * 40, "Parameters", "=" * 40)
     print(f"Model name: {args.model_name}")
-    print(f"Encoder: PLSNet") if args.enc == 'PLS' else print(f"Encoder: Encoder")
     print(f"Learning rate: {args.lr}")
     print(f"Epochs: {args.epochs}")
     print(f"Batch size: {args.batch_size}")
@@ -209,33 +205,34 @@ def main():
 
     # Model configuration
     model_config = network_config()
-    if args.enc == 'PLS':
-        encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
-    else:
-        print('Running base encoder')
-        encoder = _Encoder(**model_config['ENCODER_CONFIG'])
-        
+
+    encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
 
+    # Define model and optimizer
     model = USARNet(encoder, affineRegression).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, eps=1e-07)
-    
+
     # Decide to do FP32 training or mixed precision
+    mpt = False  # Flag to check if mixed precision training is done
     if args.precision == 'amp' and not apexImportError:
         print('Running mixed precision training')
         model, optimizer = amp.initialize(model, optimizer, opt_level='O2')
+        mpt = True
     elif args.precision == 'amp' and apexImportError:
-        print('Error: Apex not found, cannot go ahead' 
+        print('Error: Apex not found, cannot go ahead'
               'with mixed precision training. Continuing with full precision.')
 
+    # Create loss-criterion to minimize during training
     criterion = UnmaskedNCC(useRegularization=args.ur, device=device).to(device)
 
     # Creating loss-storage variables
-    epoch_train_loss = torch.zeros(args.epochs).to(device)
-    epoch_validation_loss = torch.zeros(args.epochs).to(device)
+    epoch_train_loss = torch.Tensor(args.epochs).to(device)
+    epoch_validation_loss = torch.Tensor(args.epochs).to(device)
     fold_train_loss = torch.Tensor(args.cross_validate)
     fold_validation_loss = torch.Tensor(args.cross_validate)
 
+    # Generate training data
     fixed_patches, moving_patches = generate_train_patches(data_information=data_information,
                                                            data_files=data_files,
                                                            filter_type=args.filter_type,
@@ -246,11 +243,12 @@ def main():
                                                            )
 
     print('Total number of patches: ', fixed_patches.shape[0])
-    
+
     # Save initial state for cross-validation
     model_init_state = copy.deepcopy(model.state_dict())
     optim_init_state = copy.deepcopy(optimizer.state_dict())
-    amp_init_state = copy.deepcopy(amp.state_dict())
+    if mpt:
+        amp_init_state = copy.deepcopy(amp.state_dict())
 
     print('Initializing training')
     print('\n')
@@ -258,27 +256,32 @@ def main():
     train_starttime = datetime.now()
 
     for fold in range(args.cross_validate):
-        
+
+        # Variable to hold current best validation loss
         current_best = 1
-        
+
         model.load_state_dict(model_init_state)
         optimizer.load_state_dict(optim_init_state)
-        amp.load_state_dict(amp_init_state)
+        if mpt:
+            amp.load_state_dict(amp_init_state)
 
         print('Number of network parameters: ', count_parameters(model))
         print('Number of encoder parameters: ', count_parameters(encoder))
         print('Number of regressor parameters: ', count_parameters(affineRegression))
-        
+
+        # Reduce learning-rate every 25 epochs. new_lr = current_lr * gamma
         scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=25, gamma=0.1)
 
         print('Fold: {}/{}'.format(fold + 1, args.cross_validate))
         print('\n')
 
+        # Creates file that saves train- and validation loss
         lossStorage = FileHandler(lr=args.lr, bs=args.batch_size, ps=args.patch_size,
                                   st=args.stride, device=device,
                                   lossfile=(lossfile + '_fold{}.csv'.format(fold + 1)))
         lossStorage.create()
 
+        # Get correct slice for use with five-fold cross-validation
         slices = get_slices(tot_patches=fixed_patches.shape[0], curr_fold=(fold + 1), tot_folds=args.cross_validate)
 
         fix_train_patches = torch.cat((fixed_patches[slices['train_slice1_start']:slices['train_slice1_end']],
@@ -299,26 +302,30 @@ def main():
             # Weight for regularization of loss function.
             weight = 12 / (2 + math.exp(epoch / 2))
             print('Current LR : {}'.format(scheduler.get_lr()))
-            #with torch.autograd.set_detect_anomaly(True):  # Set for debugging possible errors
-            
-            torch.cuda.synchronize()
-            st = time.time()
-            
-            model.train()
-            training_loss = train(fixed_patches=fix_train_patches,
-                                  moving_patches=mov_train_patches,
-                                  epoch=epoch,
-                                  model=model,
-                                  criterion=criterion,
-                                  optimizer=optimizer,
-                                  weight=weight,
-                                  device=device)
-            
-            torch.cuda.synchronize()
-            et = time.time()
-            print('Train time per epoch: ', (et-st))
-            print('\n')
 
+            # Set for debugging possible errors. Needs to be commented out during five-fold cross-validation
+            # with mixed precision training.
+            with torch.autograd.set_detect_anomaly(True):
+
+                torch.cuda.synchronize()
+                st = time.time()
+
+                model.train()
+                training_loss = train(fixed_patches=fix_train_patches,
+                                      moving_patches=mov_train_patches,
+                                      epoch=epoch,
+                                      model=model,
+                                      criterion=criterion,
+                                      optimizer=optimizer,
+                                      weight=weight,
+                                      device=device)
+
+                torch.cuda.synchronize()
+                et = time.time()
+                print('Train time per epoch: ', (et - st))
+                print('\n')
+
+            # Run validation
             with torch.no_grad():
                 model.eval()
                 validation_loss = validate(fixed_patches=fix_val_patches,
@@ -328,14 +335,13 @@ def main():
                                            criterion=criterion,
                                            weight=weight,
                                            device=device)
-                
-            #print(torch.cuda.memory_summary(device=device, abbreviated=False))
 
             scheduler.step()
 
+            # Store train and validation loss
             epoch_train_loss[epoch] = torch.mean(training_loss)
             epoch_validation_loss[epoch] = torch.mean(validation_loss)
-            
+
             if torch.mean(validation_loss) < current_best:
                 current_best = torch.mean(validation_loss)
                 print('Improved validation, saving model')
@@ -356,8 +362,6 @@ def main():
 
         fold_train_loss[fold] = torch.mean(epoch_train_loss)
         fold_validation_loss[fold] = torch.mean(epoch_validation_loss)
-
-        del fix_train_patches, mov_train_patches, fix_val_patches, mov_val_patches
 
     print('Training ended after ', datetime.now() - train_starttime)
     print('\n')
@@ -394,6 +398,7 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
         predicted_theta = model(fixed_batch, moving_batch)
         predicted_deform = affine_transform(moving_batch, predicted_theta)
 
+        # Loss is complete loss function with regularization. cross_corr = 1 - NCC
         loss, cross_corr = criterion(fixed_batch, predicted_deform, predicted_theta, weight, reduction='mean')
 
         if args.precision == 'amp' and not apexImportError:
@@ -401,11 +406,11 @@ def train(fixed_patches, moving_patches, epoch, model, criterion, optimizer, wei
                 scaled_loss.backward()
         else:
             loss.backward()
-            
+
         optimizer.step()
-            
+
         training_loss[batch_idx] = cross_corr.item()
-            
+
         if args.register_hook:
             get_hook(model)
 
@@ -462,6 +467,7 @@ def network_config():
     spatial_resolution = (args.patch_size // ((2**(len(user_config.encoder_config)))))**3
     num_feature_maps = user_config.num_init_features * 2**(len(user_config.encoder_config) - 1) + 1
 
+    # Compute input shape to first fully connected layer
     INPUT_SHAPE = spatial_resolution * num_feature_maps * 2
 
     AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,
@@ -506,15 +512,15 @@ def get_hook(model):
     model.encoder.conv0.register_forward_hook(printFeatureMaps)
     model.encoder.conv1.register_forward_hook(printFeatureMaps)
     # Following happens inside the first dilated residual block
-    model.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer1.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer2.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer3.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK1.intermediate.ConvLayer4.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK1.intermediate.ConvLayer1.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK1.intermediate.ConvLayer2.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK1.intermediate.ConvLayer3.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK1.intermediate.ConvLayer4.register_forward_hook(printFeatureMaps)
     # Following happens at the end of each following dilated residual block
-    model.encoder.drd_module.DRD_BLOCK1.conv.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK2.conv.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK3.conv.register_forward_hook(printFeatureMaps)
-    model.encoder.drd_module.DRD_BLOCK4.conv.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK1.conv.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK2.conv.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK3.conv.register_forward_hook(printFeatureMaps)
+    model.encoder.drd_module.RD_BLOCK4.conv.register_forward_hook(printFeatureMaps)
 
 
 if __name__ == '__main__':

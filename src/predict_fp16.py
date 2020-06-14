@@ -83,20 +83,13 @@ class FileHandler():
 
 
 def parse():
-    model_names = sorted(name.split('.')[0].strip() for name in os.listdir(os.path.join(user_config.PROJECT_ROOT,
-                                                                                        user_config.PROJECT_NAME,
-                                                                                        'output/models/')))
     parser = argparse.ArgumentParser(description='Ultrasound Image registration prediction')
     parser.add_argument('-m', '--model-name',
-                        choices=model_names, required=True,
-                        type=str,
+                        required=True, type=str,
                         help='Specify wanted model name for prediction.')
     parser.add_argument('-frame',
                         type=pu.get_frame, required=True,
                         help='Choose end-systolic (ES) frame os end-diastolic (ED) frame')
-    parser.add_argument('-enc',
-                        type=str, default=None,
-                        help='Type PLS to use the PLSNet Encoder')
     parser.add_argument('-PSN',
                         type=pu.int_type, default=1,
                         help='Specify prediciton set number. Available sets: 1, 2, 3')
@@ -126,7 +119,7 @@ def main():
 
     user_config = UserConfigParser()  # Parse main_config.ini
     args = parse()
-    
+
     #torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True
 
@@ -176,10 +169,8 @@ def main():
 
     # Configuration of the model
     model_config = network_config()
-    if args.enc == 'PLS':
-        encoder = _PLSNet(**model_config['ENCODER_CONFIG'])
-    else:
-        encoder = _Encoder(**model_config['ENCODER_CONFIG'])
+
+    encoder = _Encoder(**model_config['ENCODER_CONFIG'])
     affineRegression = _AffineRegression(**model_config['AFFINE_CONFIG'])
     model = USARNet(encoder, affineRegression).to(device)
 
@@ -194,10 +185,7 @@ def main():
     elif args.precision == 'amp' and apexImportError:
         print('Error: Apex not found, cannot go ahead with mixed precision prediction. Continuing with full precision.')
 
-    #scripted_model = torch.jit.script(model)
-
-    criterion = MaskedNCC(useRegularization=False, device=device)
-
+    # Generate prediction data
     fixed_patches, moving_patches, loc = generate_prediction_patches(DATA_ROOT=user_config.DATA_ROOT,
                                                                      data_files=data_files,
                                                                      frame=args.frame,
@@ -211,21 +199,24 @@ def main():
     print('Number of prediction samples: {}'.format(fixed_patches.shape[0]))
     print('\n')
 
+    # Create dataset of prediction data for use with the DataLoader
     prediction_set = CreateDataset(fixed_patches, moving_patches, loc)
     prediction_loader = DataLoader(prediction_set, batch_size=user_config.batch_size,
                                    shuffle=False, num_workers=0, pin_memory=False, drop_last=False)
 
+    # Set correct d-type
     dtype = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    predicted_theta_tmp = torch.zeros([1, user_config.batch_size, 12]).type(dtype).to(device)
-    pos_tmp = torch.zeros([1, user_config.batch_size, 3]).type(dtype).to(device)
+
+    # Create empty tensors for writing position and prediction data
+    predicted_theta_tmp = torch.Tensor(1, user_config.batch_size, 12).type(dtype).to(device)
+    pos_tmp = torch.Tensor(1, user_config.batch_size, 3).type(dtype).to(device)
 
     sampleNumber = 1  # Hold index for writing correctly to .h5 file
     saveData = SaveHDF5File(user_config.DATA_ROOT)  # Initialize file for saving patches
 
+    # Variables to store loss
     pre_ncc = 0
     post_ncc = 0
-    
-    acc_time = 0
 
     print('Predicting')
 
@@ -236,16 +227,16 @@ def main():
         model.eval()
 
         for batch_idx, (fixed_batch, moving_batch, loc) in enumerate(prediction_loader):
-            
+
+            # Run and time prediction model
             torch.cuda.synchronize()
             model_rt = time.time()
             predicted_theta = model(fixed_batch, moving_batch)
             torch.cuda.synchronize()
             end_rt = time.time()
             print('Model runtime: ', end_rt - model_rt)
-            
-            acc_time += end_rt - model_rt
 
+            # Transform moving data based on prediction
             warped_batch = affine_transform(moving_batch, predicted_theta)
 
             # Saves the patches as HDF5 data
@@ -255,11 +246,14 @@ def main():
                                    warped_batch=warped_batch,
                                    sampleNumber=sampleNumber)
 
+            # Updata samplenumber, used for saving of predictions
             sampleNumber += user_config.batch_size
 
+            # Compute normalized cross correlation values
             preWarpNcc, pre_mask = unmasked_normalized_cross_correlation(fixed_batch, moving_batch, reduction=None)
             postWarpNcc, post_mask = masked_normalized_cross_correlation(fixed_batch, warped_batch, reduction=None)
-            
+
+            # Plot predictions for each patch
             if args.plot_patchwise_prediction:
                 plotPatchwisePrediction(fixed_batch=fixed_batch.cpu(),
                                         moving_batch=moving_batch.cpu(),
@@ -269,11 +263,12 @@ def main():
                                         pre_mask=pre_mask.cpu(),
                                         post_mask=post_mask.cpu()
                                         )
-                
+
             predicted_theta = predicted_theta.view(-1, 12)
             predicted_theta_tmp = predicted_theta.type(dtype)
             loc_tmp = loc.type(dtype)
 
+            # Store position and prediction of patches
             predictionStorage.write(loc=loc_tmp.cpu().numpy().round(5),
                                     theta=predicted_theta_tmp.cpu().numpy()
                                     )
@@ -296,7 +291,6 @@ def main():
                                                        round(post_av, 4),
                                                        round((post_av - pre_av), 4),
                                                        round(100 - ((pre_av / post_av) * 100), 2)))
-    print(acc_time)
 
 def print_patchloss(preWarpNcc, postWarpNcc):
 
@@ -324,6 +318,7 @@ def network_config():
     spatial_resolution = (user_config.patch_size // ((2**len(user_config.encoder_config))))**3
     num_feature_maps = user_config.num_init_features * 2**(len(user_config.encoder_config) - 1) + 1
 
+    # Calculate input shape to the first fully connected layer
     INPUT_SHAPE = spatial_resolution * num_feature_maps * 2
 
     AFFINE_CONFIG = {'num_input_parameters': INPUT_SHAPE,

@@ -7,6 +7,8 @@ class MaskedNCC(nn.Module):
         with a regularization function to compute the loss.
 
     Args:
+        useRegularization (bool): whether or not to use regularization loss. Default: True
+        device (torch.device): desired device for computation
         fixed_patch (tensor): fixed patch with shape [B, C, D, H, W]
         moving_patch (tensor): moving patch with shape [B, C, D, H, W]
         predicted_theta (tensor): predicted theta from network output
@@ -14,7 +16,7 @@ class MaskedNCC(nn.Module):
         reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum', 'none')
 
     Examples::
-        >>> criterion = NCC(useRegularization)
+        >>> criterion = MaskedNCC(useRegularization, device)
         >>> fixed_patch = torch.randn(B, C, D, H, W)
         >>> moving_patch = torch.randn(B, C, D, H, W)
         >>> predicted_theta = net(fixed_patch, moving_patch)
@@ -22,7 +24,7 @@ class MaskedNCC(nn.Module):
         >>> loss = criterion(fixed_patch, predicted_deform, predicted_theta, weight, reduction(opt))
     """
 
-    def __init__(self, useRegularization, device):
+    def __init__(self, device, useRegularization=True):
         super(MaskedNCC, self).__init__()
 
         self.useRegularization = useRegularization
@@ -34,12 +36,14 @@ class MaskedNCC(nn.Module):
             weight = 0
         L_reg = regularization_loss(predicted_theta, weight, self.device)
         return ((1 - ncc) + L_reg), (1 - ncc), mask
-    
+
 class UnmaskedNCC(nn.Module):
     r""" Creates a criterion that uses zero-normalized cross-correlation between two input volumes together
         with a regularization function to compute the loss.
 
     Args:
+        useRegularization (bool): whether or not to use regularization loss. Default: True
+        device (torch.device): desired device for computation
         fixed_patch (tensor): fixed patch with shape [B, C, D, H, W]
         moving_patch (tensor): moving patch with shape [B, C, D, H, W]
         predicted_theta (tensor): predicted theta from network output
@@ -47,7 +51,7 @@ class UnmaskedNCC(nn.Module):
         reduction (string, optional): reduction method for loss-function. Default: 'mean' (opt: 'mean', 'sum', 'none')
 
     Examples::
-        >>> criterion = NCC(useRegularization)
+        >>> criterion = Unmasked(useRegularization)
         >>> fixed_patch = torch.randn(B, C, D, H, W)
         >>> moving_patch = torch.randn(B, C, D, H, W)
         >>> predicted_theta = net(fixed_patch, moving_patch)
@@ -55,7 +59,7 @@ class UnmaskedNCC(nn.Module):
         >>> loss = criterion(fixed_patch, predicted_deform, predicted_theta, weight, reduction(opt))
     """
 
-    def __init__(self, useRegularization, device):
+    def __init__(self, device, useRegularization=True):
         super(UnmaskedNCC, self).__init__()
 
         self.useRegularization = useRegularization
@@ -67,7 +71,7 @@ class UnmaskedNCC(nn.Module):
             weight = 0
         L_reg = regularization_loss(predicted_theta, weight, self.device)
         return ((1 - ncc) + L_reg), (1 - ncc)
-    
+
 def unmasked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     """Compute and return unmasked zero-ncc ([0, 1]).
         Note:
@@ -77,11 +81,11 @@ def unmasked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
     """
     fixed = (fixed_patch[:])
     moving = (moving_patch[:])
-    
+
     mask = create_mask(fixed, fixed)
 
     N = torch.sum(torch.ones_like(mask), (2, 3, 4), keepdim=True)
-    
+
     fixed_mean = torch.mean(fixed, axis=(2, 3, 4), keepdim=True)
     moving_mean = torch.mean(moving, axis=(2, 3, 4), keepdim=True)
 
@@ -94,9 +98,10 @@ def unmasked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
 
     numerator = (fixed - fixed_mean) * (moving - moving_mean)
     denominator = torch.sqrt(fixed_variance * moving_variance)
-    
+
+    #Small number to prevent zero-division
     epsilon = 1e-07
-    
+
     pixel_ncc = torch.div(numerator, (denominator + epsilon))
     ncc = torch.mean(pixel_ncc, axis=(2, 3, 4))
 
@@ -136,9 +141,10 @@ def masked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
 
     numerator = torch.mul((fixed - masked_fixed_mean) * mask, (moving - masked_moving_mean) * mask)
     denominator = torch.sqrt(fixed_variance * moving_variance)
-    
-    epsilon = 1e-08
-    
+
+    # Small number to prevent zero-division
+    epsilon = 1e-07
+
     pixel_ncc = torch.div(numerator, (denominator + epsilon))
     ncc = torch.mean(pixel_ncc, axis=(2, 3, 4))
 
@@ -153,8 +159,8 @@ def masked_normalized_cross_correlation(fixed_patch, moving_patch, reduction):
 
 
 def create_mask(fixed_patch, moving_patch):
-    '''Creates sector-mask for ultrasound volumes
-    '''
+    """Creates sector-mask for ultrasound volumes
+    """
     fix_mask = torch.ne(fixed_patch, 0)
     mov_mask = torch.ne(moving_patch, 0)
 
@@ -174,9 +180,12 @@ def extract(predicted_theta):
     """Extract rotation (A) and translation (b) part from predicted theta
         and return together with an instance of the identity matrix.
     """
+
+    # Create identity matrix
     IDT = torch.tensor([1, 0, 0, 0, 1, 0, 0, 0, 1], dtype=torch.float32)
     IDT = IDT.view(-1, 3, 3)
 
+    # Extract rotation and translation in separate variables
     A = predicted_theta[:, :, 0:3]
     b = predicted_theta[:, :, 3]
 

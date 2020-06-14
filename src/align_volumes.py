@@ -28,11 +28,8 @@ def parse():
                         type=pu.int_type, required=True,
                         help='Specify prediction set number. Available sets: 1, 2, 3')
     parser.add_argument('-aft',
-                        choices={"Bilateral_lookup", "NLMF_lookup", "raw"}, default="Bilateral_lookup",
+                        choices={"Bilateral_lookup", "NLMF_lookup", "raw"}, default="raw",
                         help='Specify the filter-type of the files to align')
-    parser.add_argument('-save',
-                        type=str, default=None,
-                        help='Saves the algined volumes with the specified filename. PLEASE INCLUDE FILE EXTENSION')
     parser.add_argument('-calph',
                         type=pu.float_type, default=1.0,
                         help='Specify opacity of the fixed volume. 1.0 = no opacity')
@@ -50,8 +47,10 @@ def main():
     args = parse()
     user_config = UserConfigParser()
 
+    # Read dataset information from file
     dataset = GetDatasetInformation(os.path.join(user_config.DATA_ROOT, args.frame), args.aft, mode='prediction')
 
+    # Append correct files
     fixed_image = dataset.fix_files
     moving_image = dataset.mov_files
     fix_vol = dataset.fix_vols
@@ -61,15 +60,18 @@ def main():
 
     voxelsize = 7.000003e-4
 
+    # Get correct paths
     data_files = os.path.join(user_config.DATA_ROOT, 'patient_data_proc_{}/'.format(args.aft))
     theta_proc_path = os.path.join(user_config.PROJECT_ROOT, user_config.PROCRUSTES, 'results', args.glob)
 
+    # Get ultrasound volume data
     vol_data = LoadHDF5File(data_files,
                             fixed_image[args.PSN - 1], moving_image[args.PSN - 1],
                             fix_vol[args.PSN - 1], mov_vol[args.PSN - 1], dims=None)
-    
+
     vol_data.normalize()
 
+    # Add batch dimension
     fixed_volume = vol_data.fix_data.unsqueeze(0)
     moving_volume = vol_data.mov_data.unsqueeze(0)
 
@@ -79,8 +81,10 @@ def main():
         for i, theta in enumerate(readTheta.read().split()):
             if theta != '1' and theta != '0':
                 if i == 3 or i == 7 or i == 11:
+                    # Append translation values
                     global_theta.append(float(theta) * voxelsize * 10)
                 else:
+                    # Append rotation values
                     global_theta.append(float(theta))
 
     global_theta = torch.Tensor(global_theta)
@@ -91,6 +95,7 @@ def main():
 
     warped_volume = affine_transform(moving_volume, global_theta)
 
+    # Compute loss pre- and post-alignment
     pre_loss, pre_mask = unmasked_normalized_cross_correlation(fixed_volume, moving_volume, reduction=None)
     post_loss, post_mask = masked_normalized_cross_correlation(fixed_volume, warped_volume, reduction=None)
 
@@ -162,6 +167,7 @@ def plot_volumes(fixed_volume, moving_volume, warped_volume, orig_mask, sect_mas
         ax[0, 2].imshow(moving_z, origin='left', cmap='gray', alpha=args.galph)
         ax[1, 2].imshow(warped_z, origin='left', cmap='gray', alpha=args.galph+0.2)
 
+        # Uncomment to plot mask overlay on the volumes
         #ax[0, 0].imshow(orig_mask_x, origin='left', cmap='cool', alpha=0.1)
         #ax[0, 1].imshow(orig_mask_y, origin='left', cmap='cool', alpha=0.1)
         #ax[0, 2].imshow(orig_mask_z, origin='left', cmap='cool', alpha=0.1)
@@ -171,23 +177,16 @@ def plot_volumes(fixed_volume, moving_volume, warped_volume, orig_mask, sect_mas
         #ax[1, 2].imshow(sect_mask_z, origin='left', cmap='cool', alpha=0.1)
 
         #save_data(fig, ax)
-        
-        
-    if args.save is not None:
-        output_dir = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output', 'figures')
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        plt.savefig(os.path.join(output_dir, args.save), dpi=200,
-                    format=args.save.split('.')[1].strip(), bbox_inches='tight', pad_inches=0)
-        print('Saved figure at ' + output_dir + ' with filename ' + args.save_filename)
 
     plt.show()
-    
+
 def save_data(fig, ax):
+    """Gets data from each subplot and saves it
+    """
     output_dir = os.path.join(user_config.PROJECT_ROOT, user_config.PROJECT_NAME, 'output', 'figures', 'post_align')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        
+
     for i in range(3):
         if i == 0:
             view = 'lax'

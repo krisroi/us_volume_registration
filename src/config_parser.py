@@ -88,6 +88,8 @@ class UserConfigParser:
 
 
 def remove():
+    """Removes values from main_config.ini before writing to avoid duplicates
+    """
     user_config = UserConfigParser()
     if user_config.config.has_section('Predict'):
         user_config.config.remove_section('Predict')
@@ -96,6 +98,8 @@ def remove():
 
 
 def write(bs, ps, st):
+    """Write batch_size, patch_size and stride to main_config.ini
+    """
     write_config = configparser.ConfigParser()
     write_config.add_section('Predict')
     write_config.set('Predict', 'batch_size', str(bs))

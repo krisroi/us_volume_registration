@@ -33,8 +33,6 @@ def progress_printer(percentage):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-# Parse string and return boolean value
-
 
 def parse_boolean(arg):
     if arg.lower() in ('yes', 'true', '1', 'y', 't'):
@@ -159,11 +157,11 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 warped_x = warped_batch[count, 0, warped_batch.shape[2] // 2]
                 warped_y = warped_batch[count, 0, :, warped_batch.shape[3] // 2]
                 warped_z = warped_batch[count, 0, :, :, warped_batch.shape[4] // 2]
-                
+
                 pre_mask_x = pre_mask[count, 0, pre_mask.shape[2] // 2]
                 pre_mask_y = pre_mask[count, 0, :, pre_mask.shape[3] // 2]
                 pre_mask_z = pre_mask[count, 0, :, :, pre_mask.shape[4] // 2]
-                
+
                 post_mask_x = post_mask[count, 0, post_mask.shape[2] // 2]
                 post_mask_y = post_mask[count, 0, :, post_mask.shape[3] // 2]
                 post_mask_z = post_mask[count, 0, :, :, post_mask.shape[4] // 2]
@@ -175,7 +173,7 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_x[1, j].imshow(warped_x, origin='lef', cmap='gray', alpha=grayAlpha)
                 ax_x[0, j].title.set_text('No alignment')
                 ax_x[1, j].title.set_text('Predicted alignment')
-                
+
                 ax_x[0, j].imshow(pre_mask_x, origin='left', cmap='cool', alpha=0.1)
                 ax_x[1, j].imshow(post_mask_x, origin='left', cmap='cool', alpha=0.1)
 
@@ -186,7 +184,7 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_y[1, j].imshow(warped_y, origin='lef', cmap='gray', alpha=grayAlpha)
                 ax_y[0, j].title.set_text('No alignment')
                 ax_y[1, j].title.set_text('Predicted alignment')
-                
+
                 ax_y[0, j].imshow(pre_mask_y, origin='left', cmap='cool', alpha=0.1)
                 ax_y[1, j].imshow(post_mask_y, origin='left', cmap='cool', alpha=0.1)
 
@@ -197,7 +195,7 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
                 ax_z[1, j].imshow(warped_z, origin='lef', cmap='gray', alpha=grayAlpha)
                 ax_z[0, j].title.set_text('No alignment')
                 ax_z[1, j].title.set_text('Predicted alignment')
-                
+
                 ax_z[0, j].imshow(pre_mask_z, origin='left', cmap='cool', alpha=0.1)
                 ax_z[1, j].imshow(post_mask_z, origin='left', cmap='cool', alpha=0.1)
 
@@ -207,10 +205,6 @@ def plotPatchwisePrediction(fixed_batch, moving_batch, predicted_theta, PROJ_ROO
     fig_y.suptitle('y-sliced patchwise predictions for batch_size {}'.format(batch_size))
     fig_z.suptitle('z-sliced patchwise predictions for batch_size {}'.format(batch_size))
     plt.show()
-
-    # if savefig:
-    #    output_dir = os.path.join(PROJ_ROOT, PROJ_NAME, 'output/predictions/')
-    #    plt.savefig('{}patch_predictionss.png'.format(output_dir), dpi=225, format='png', bbox_inches='tight', pad_inches=0)
 
 
 def plotTrainPredictions(fixed_batch, moving_batch, predicted_theta, mask, PROJ_ROOT, PROJ_NAME, savefig=False, copperAlpha=1, grayAlpha=0.6):

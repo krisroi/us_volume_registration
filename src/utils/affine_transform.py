@@ -14,10 +14,14 @@ def affine_grid_3d(size, theta):
         A 3d affine grid that is used for transformation
         Return size: [B, D, H, W, 3]
     """
-    B, C, D, H, W = size  # Extract dimensions of the input
 
-    theta = theta.expand(B, 3, 4)  # expand to the number of batches you need
+    # Extract dimensions of the input
+    B, C, D, H, W = size
 
+    # Expand to the number of batches needed
+    theta = theta.expand(B, 3, 4)
+
+    # Define grid
     grid = F.affine_grid(theta, size=(B, C, D, H, W))
     grid = grid.view(B, D, H, W, 3)
 
@@ -32,10 +36,12 @@ def affine_transform(moving_patch, theta):
     Returns:
         Transformed input data that is transformed with the transformation matrix.
     """
-    B, C, D, H, W = moving_patch.shape  # Extracting the dimensions
+
+    # Extracting the dimensions
+    B, C, D, H, W = moving_patch.shape
 
     grid_3d = affine_grid_3d((B, C, D, H, W), theta)
     warped_patches = F.grid_sample(moving_patch, grid_3d, mode='bilinear',
-                                   padding_mode='border', align_corners=False)  
+                                   padding_mode='border', align_corners=False)
 
     return warped_patches

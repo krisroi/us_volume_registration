@@ -7,6 +7,9 @@ from torch.jit.annotations import List
 
 
 class _Conv(nn.Module):
+    """Create a conv-layer followed by batch normalization and relu activation
+    """
+
     def __init__(self, num_input_features, growth_rate, padding, dilation):
         super(_Conv, self).__init__()
 
@@ -38,6 +41,10 @@ class _Conv(nn.Module):
 
 
 class _StridedConv(nn.Module):
+    """Create a conv-layer with stride 2 for downsampling. Strided conv-layer followed
+        by batch normalization and relu activation
+    """
+
     def __init__(self, num_input_features, num_output_features):
         super(_StridedConv, self).__init__()
 
@@ -51,13 +58,13 @@ class _StridedConv(nn.Module):
         return out
 
 
-class _DilatedResidualDenseBlock(nn.ModuleDict):
+class _ResidualDenseBlock(nn.ModuleDict):
 
     def __init__(self, num_layers, num_input_features, growth_rate):
-        super(_DilatedResidualDenseBlock, self).__init__()
-        
+        super(_ResidualDenseBlock, self).__init__()
+
         self.intermediate = nn.ModuleDict()
-        
+
         for i in range(num_layers):
             layer = _Conv(
                 num_input_features=num_input_features + i * growth_rate,
@@ -87,21 +94,19 @@ class _Encoder(nn.Module):
         <https://arxiv.org/pdf/1909.07474v1.pdf>
     Args:
         growth_rate (int): how many filters to add each layer (`g` in paper)
-        encoder_config (tuple of 4 ints): how many layers in each DRDB block
+        encoder_config (tuple of 4 ints): how many layers in each RDB block
         num_init_features (int): the number of filters to learn in the first convolution layer
         memory_efficient (bool, default=False): if true, running the encoder in an memory efficient manner.
             It only stores convolutional feature maps and recomputes values not needed for backpropagation in
             the forward method. Increases training time by about 15%
     """
 
-    #__constants__ = ['drd_module']
-
     def __init__(self, encoder_config, growth_rate, num_init_features, memory_efficient=False):
         super(_Encoder, self).__init__()
 
         self.encoder_config = encoder_config
 
-        self.drd_module = nn.ModuleDict()
+        self.rd_module = nn.ModuleDict()
         self.strided_conv_module = nn.ModuleDict()
 
         # Initial StridedConv
@@ -112,10 +117,10 @@ class _Encoder(nn.Module):
 
         num_features = num_init_features + 1
         for i, num_layers in enumerate(encoder_config):
-            DRD_BLOCK = _DilatedResidualDenseBlock(num_layers=num_layers,
-                                                   num_input_features=num_features,
-                                                   growth_rate=growth_rate)
-            self.drd_module.add_module('DRD_BLOCK%d' % ((i + 1)), DRD_BLOCK)
+            RD_BLOCK = _ResidualDenseBlock(num_layers=num_layers,
+                                           num_input_features=num_features,
+                                           growth_rate=growth_rate)
+            self.rd_module.add_module('RD_BLOCK%d' % ((i + 1)), RD_BLOCK)
 
             if i != len(encoder_config) - 1:
                 STRIDED_CONV_LAYER = _StridedConv(num_input_features=num_features,
@@ -128,11 +133,11 @@ class _Encoder(nn.Module):
         self.memory_efficient = memory_efficient
 
     def __get_keys(self):
-        self.drd_keynames = []
+        self.rd_keynames = []
         self.strided_keynames = []
 
-        for key in self.drd_module.keys():
-            self.drd_keynames.append(key)
+        for key in self.rd_module.keys():
+            self.rd_keynames.append(key)
 
         for key in self.strided_conv_module.keys():
             self.strided_keynames.append(key)
@@ -156,8 +161,8 @@ class _Encoder(nn.Module):
         # Initial strided conv layer
         out = self.relu(self.norm(self.conv0(x)))
 
-        # Counter for finding correct DRD-block
-        drd_key_num = 0
+        # Counter for finding correct RD-block
+        rd_key_num = 0
 
         for i, key in enumerate(self.strided_keynames):
 
@@ -168,22 +173,23 @@ class _Encoder(nn.Module):
             # Input reinforcemet
             out = torch.cat((out, downsampled_data), 1)
 
-            # Apply DRD-block
+            # Apply RD-block
             if self.memory_efficient and out.requires_grad:
                 # if not torch.jit.is_scripting():
-                out = cp.checkpoint(self.drd_module[self.drd_keynames[drd_key_num]], out)
+                out = cp.checkpoint(self.rd_module[self.rd_keynames[rd_key_num]], out)
             else:
-                out = self.drd_module[self.drd_keynames[drd_key_num]](out)
+                out = self.rd_module[self.rd_keynames[rd_key_num]](out)
 
             # Apply strided conv-layer
             if i != len(self.encoder_config) - 1:
                 out = self.strided_conv_module[key](out)
 
-            drd_key_num += 1
+            rd_key_num += 1
 
         out = self.relu(out)
         return out
-    
+
+
 if __name__ == '__main__':
-    net = _Encoder((4,4,4,4,4), 8, 8)
+    net = _Encoder((4, 4, 4, 4, 4), 8, 8)
     print(net)
