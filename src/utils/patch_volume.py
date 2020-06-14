@@ -1,6 +1,8 @@
 import torch
 from torch.nn import functional as F
 
+import time
+
 
 #======================================================================================#
 # Yang, X., Kwitt, R., Styner, M., Niethammer, M., 2017.
@@ -92,7 +94,7 @@ def create_patches(data, patch_size, stride, device):
 
     data_size = data.shape
     data = data.to(device)
-
+    
     flat_idx = calculatePatchIdx3D(1, patch_size * torch.ones(3), data_size[1:], stride * torch.ones(3)).to(device)
     flat_idx_select = torch.zeros(flat_idx.size()).to(device)
 
@@ -107,14 +109,15 @@ def create_patches(data, patch_size, stride, device):
                                  patch_pos[1]:patch_pos[1] + patch_size,
                                  patch_pos[2]:patch_pos[2] + patch_size,
                                  patch_pos[3]:patch_pos[3] + patch_size]
-
+        
+        # Set voxels with data to 1 and voxels without to 0
         fix_on = torch.ne(fixed_patch, 0).float()
         mov_on = torch.ne(moving_patch, 0).float()
 
         threshold = 0.7
 
         # Selecting only the patches that contain > threshold% non-zero data
-        if (torch.sum(torch.ones_like(fix_on)) >= (patch_size**3) * threshold) & (torch.sum(torch.ones_like(mov_on)) >= (patch_size**3) * threshold):
+        if (torch.sum(fix_on) >= (patch_size**3) * threshold) & (torch.sum(mov_on) >= (patch_size**3) * threshold):
             flat_idx_select[patch_idx] = 1
 
     flat_idx_select = flat_idx_select.bool()
